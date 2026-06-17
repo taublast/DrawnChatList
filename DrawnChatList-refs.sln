@@ -1,0 +1,112 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 18
+VisualStudioVersion = 18.0.11201.2
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{089100B1-113F-4E66-888A-E83F3999EAFD}"
+	ProjectSection(SolutionItems) = preProject
+		..\DrawnUi\.gitignore = ..\DrawnUi\.gitignore
+		..\DrawnUi\CLAUDE.md = ..\DrawnUi\CLAUDE.md
+		..\DrawnUi\src\Maui\Directory.Build.props = ..\DrawnUi\src\Maui\Directory.Build.props
+		..\DrawnUi\src\Directory.Build.props = ..\DrawnUi\src\Directory.Build.props
+		..\DrawnUi\src\Directory.Build.targets = ..\DrawnUi\src\Directory.Build.targets
+		..\DrawnUi\nugets\DrawnUi.Maui.targets = ..\DrawnUi\nugets\DrawnUi.Maui.targets
+		..\DrawnUi\README.md = ..\DrawnUi\README.md
+	EndProjectSection
+EndProject
+Project("{D954291E-2A0B-460D-934E-DC6B0785DB48}") = "DrawnUi.Shared", "..\DrawnUi\src\Shared\DrawnUi.Shared.shproj", "{83974207-9636-48DD-BDB3-98EDECBB1107}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DrawnUi.Maui", "..\DrawnUi\src\Maui\DrawnUi\DrawnUi.Maui.csproj", "{93E119B1-4378-87DF-2DD2-A818D1E6C2A2}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DrawnUi.Blazor", "..\DrawnUi\src\Blazor\DrawnUi\DrawnUi.Blazor.csproj", "{A600FD05-5DE5-E382-DB79-8E53AD2FED7E}"
+EndProject
+Project("{D954291E-2A0B-460D-934E-DC6B0785DB48}") = "DrawnUi.SharedNet", "..\DrawnUi\src\SharedNet\DrawnUi.SharedNet.shproj", "{C4D8F2A1-7B3E-4F9C-A8D6-5E1B9F2C8D3A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DrawnUi.Net", "..\DrawnUi\src\Net\DrawnUi\DrawnUi.Net.csproj", "{51F7EC60-4642-3A6F-6C99-F6F62233C374}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DrawnUi.OpenTk", "..\DrawnUi\src\OpenTk\DrawnUi\DrawnUi.OpenTk.csproj", "{ED99DDB0-602D-46F9-AEEF-4AD047BFCE8D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DrawnUi.Blazor.Server", "..\DrawnUi\src\Blazor\DrawnUi.Server\DrawnUi.Blazor.Server.csproj", "{75940C51-6D64-C426-B883-E57EFA0A88CB}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Refs", "Refs", "{9E06E6F0-4214-4D7B-9D29-F26B0B44E84D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DrawnUi.Blazor.Wasm", "..\DrawnUi\src\Blazor\DrawnUi.Wasm\DrawnUi.Blazor.Wasm.csproj", "{8D99F129-8B66-1848-BE06-F93F65B0E242}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DrawnChatList.Maui", "src\Maui\DrawnChatList.Maui.csproj", "{D6714110-A310-B6E1-FC94-D37441470F9B}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Chat", "Chat", "{72681293-EFFB-42B8-9C52-D1381D71B28F}"
+EndProject
+Project("{D954291E-2A0B-460D-934E-DC6B0785DB48}") = "DrawnChatList.Shared", "src\Shared\DrawnChatList.Shared.shproj", "{60EF8DBF-E427-472C-9BB6-8D028E4B7900}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DrawnChatList.OpenTk", "src\OpenTk\DrawnChatList.OpenTk.csproj", "{21B2D714-ECBD-64BA-B96E-717C047572A7}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{93E119B1-4378-87DF-2DD2-A818D1E6C2A2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{93E119B1-4378-87DF-2DD2-A818D1E6C2A2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{93E119B1-4378-87DF-2DD2-A818D1E6C2A2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{93E119B1-4378-87DF-2DD2-A818D1E6C2A2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A600FD05-5DE5-E382-DB79-8E53AD2FED7E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A600FD05-5DE5-E382-DB79-8E53AD2FED7E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A600FD05-5DE5-E382-DB79-8E53AD2FED7E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A600FD05-5DE5-E382-DB79-8E53AD2FED7E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{51F7EC60-4642-3A6F-6C99-F6F62233C374}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{51F7EC60-4642-3A6F-6C99-F6F62233C374}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{51F7EC60-4642-3A6F-6C99-F6F62233C374}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{51F7EC60-4642-3A6F-6C99-F6F62233C374}.Release|Any CPU.Build.0 = Release|Any CPU
+		{ED99DDB0-602D-46F9-AEEF-4AD047BFCE8D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{ED99DDB0-602D-46F9-AEEF-4AD047BFCE8D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{ED99DDB0-602D-46F9-AEEF-4AD047BFCE8D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{ED99DDB0-602D-46F9-AEEF-4AD047BFCE8D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{75940C51-6D64-C426-B883-E57EFA0A88CB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{75940C51-6D64-C426-B883-E57EFA0A88CB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{75940C51-6D64-C426-B883-E57EFA0A88CB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{75940C51-6D64-C426-B883-E57EFA0A88CB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8D99F129-8B66-1848-BE06-F93F65B0E242}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8D99F129-8B66-1848-BE06-F93F65B0E242}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8D99F129-8B66-1848-BE06-F93F65B0E242}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8D99F129-8B66-1848-BE06-F93F65B0E242}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D6714110-A310-B6E1-FC94-D37441470F9B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D6714110-A310-B6E1-FC94-D37441470F9B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D6714110-A310-B6E1-FC94-D37441470F9B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D6714110-A310-B6E1-FC94-D37441470F9B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{21B2D714-ECBD-64BA-B96E-717C047572A7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{21B2D714-ECBD-64BA-B96E-717C047572A7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{21B2D714-ECBD-64BA-B96E-717C047572A7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{21B2D714-ECBD-64BA-B96E-717C047572A7}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{83974207-9636-48DD-BDB3-98EDECBB1107} = {9E06E6F0-4214-4D7B-9D29-F26B0B44E84D}
+		{93E119B1-4378-87DF-2DD2-A818D1E6C2A2} = {9E06E6F0-4214-4D7B-9D29-F26B0B44E84D}
+		{A600FD05-5DE5-E382-DB79-8E53AD2FED7E} = {9E06E6F0-4214-4D7B-9D29-F26B0B44E84D}
+		{C4D8F2A1-7B3E-4F9C-A8D6-5E1B9F2C8D3A} = {9E06E6F0-4214-4D7B-9D29-F26B0B44E84D}
+		{51F7EC60-4642-3A6F-6C99-F6F62233C374} = {9E06E6F0-4214-4D7B-9D29-F26B0B44E84D}
+		{ED99DDB0-602D-46F9-AEEF-4AD047BFCE8D} = {9E06E6F0-4214-4D7B-9D29-F26B0B44E84D}
+		{75940C51-6D64-C426-B883-E57EFA0A88CB} = {9E06E6F0-4214-4D7B-9D29-F26B0B44E84D}
+		{8D99F129-8B66-1848-BE06-F93F65B0E242} = {9E06E6F0-4214-4D7B-9D29-F26B0B44E84D}
+		{D6714110-A310-B6E1-FC94-D37441470F9B} = {72681293-EFFB-42B8-9C52-D1381D71B28F}
+		{60EF8DBF-E427-472C-9BB6-8D028E4B7900} = {72681293-EFFB-42B8-9C52-D1381D71B28F}
+		{21B2D714-ECBD-64BA-B96E-717C047572A7} = {72681293-EFFB-42B8-9C52-D1381D71B28F}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {329E3D0C-A3F7-4A3E-B61C-6B2D1BD7F708}
+	EndGlobalSection
+	GlobalSection(SharedMSBuildProjectFiles) = preSolution
+		src\Shared\DrawnChatList.Shared.projitems*{21b2d714-ecbd-64ba-b96e-717c047572a7}*SharedItemsImports = 5
+		..\DrawnUi\src\Shared\Shared.projitems*{51f7ec60-4642-3a6f-6c99-f6f62233c374}*SharedItemsImports = 5
+		src\Shared\DrawnChatList.Shared.projitems*{60ef8dbf-e427-472c-9bb6-8d028e4b7900}*SharedItemsImports = 13
+		..\DrawnUi\src\Shared\Shared.projitems*{83974207-9636-48dd-bdb3-98edecbb1107}*SharedItemsImports = 13
+		..\DrawnUi\src\Shared\Shared.projitems*{93e119b1-4378-87df-2dd2-a818d1e6c2a2}*SharedItemsImports = 5
+		..\DrawnUi\src\Shared\Shared.projitems*{a600fd05-5de5-e382-db79-8e53ad2fed7e}*SharedItemsImports = 5
+		..\DrawnUi\src\SharedNet\SharedNet.projitems*{c4d8f2a1-7b3e-4f9c-a8d6-5e1b9f2c8d3a}*SharedItemsImports = 13
+		src\Shared\DrawnChatList.Shared.projitems*{d6714110-a310-b6e1-fc94-d37441470f9b}*SharedItemsImports = 5
+		..\DrawnUi\src\Shared\Shared.projitems*{ed99ddb0-602d-46f9-aeef-4ad047bfce8d}*SharedItemsImports = 5
+	EndGlobalSection
+EndGlobal

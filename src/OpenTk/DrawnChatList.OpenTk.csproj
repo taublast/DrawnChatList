@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RuntimeIdentifiers>win-x64;linux-x64;linux-arm64</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Required for Linux publish to include native Skia runtime -->
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="4.147.0-preview.2.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\DrawnUi\src\OpenTk\DrawnUi\DrawnUi.OpenTk.csproj" />
+  </ItemGroup>
+
+  <Import Project="..\Shared\DrawnChatList.Shared.projitems" Label="Shared" />
+
+ 
+
+</Project>

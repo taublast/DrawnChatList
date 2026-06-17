@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <MSBuildAllProjects Condition="'$(MSBuildVersion)' == '' Or '$(MSBuildVersion)' &lt; '16.0'">$(MSBuildAllProjects);$(MSBuildThisFileFullPath)</MSBuildAllProjects>
+    <HasSharedItems>true</HasSharedItems>
+    <SharedGUID>60ef8dbf-e427-472c-9bb6-8d028e4b7900</SharedGUID>
+  </PropertyGroup>
+  <PropertyGroup Label="Configuration">
+    <Import_RootNamespace>DrawnChatList.Shared</Import_RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)ChatCell.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)ChatMessage.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)ChatMessagesStack.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)ChatPage.Shared.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)ChatTheme.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)IChatCellActions.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)MockChatApi.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)WindowedCollection.cs" />
+  </ItemGroup>
+</Project>
