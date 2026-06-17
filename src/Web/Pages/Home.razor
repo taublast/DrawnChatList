@@ -1,0 +1,34 @@
+﻿@page "/"
+@using DrawnUi.Draw
+@using DrawnUi.Views
+
+<PageTitle>Home</PageTitle>
+
+<h1>DrawnChatList</h1>
+
+SkiaSharp canvas below:
+
+<div style="height: 100vh; width:min(100%, 470px);">
+
+    <Canvas Content="_content"
+            MaxWidthRequest="430"
+            HorizontalOptions="@LayoutOptions.Fill"
+            VerticalOptions="@LayoutOptions.Fill"
+            BackgroundColor="@Colors.Black"
+            Margin="8"
+            RenderingMode="@RenderingModeType.Accelerated"
+            Gestures="@GesturesMode.Lock" />
+
+</div>
+
+@code {
+    private readonly SkiaControl _content;
+
+    public Home()
+    {
+        var vm = new ChatPage();
+        _content = vm.CreateCanvasContent();
+        vm.InitializeList();
+    }
+
+}

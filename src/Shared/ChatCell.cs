@@ -1,59 +1,12 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using AppoMobi.Gestures;
+using DrawnUi;
 using DrawnUi.Controls;
 using DrawnUi.Draw;
+using DrawnUi.Views;
 
 namespace DrawnChatList;
-
-/// <summary>
-/// Deco-triangle tail glued to the left of an incoming bubble. Dedicated subclass with fixed
-/// visuals + CacheSharing=Shared: every instance across all recycled cells reuses ONE physical
-/// cache surface for the whole type instead of rendering/storing its own.
-/// </summary>
-public class IncomingBubbleSign : SkiaShape
-{
-    /// <summary>
-    /// Deco-triangle tail glued to the right of an outgoing bubble. Same shared-cache trick.
-    /// Shown for the first message in a day group for every direction.
-    /// </summary>
-    public IncomingBubbleSign()
-    {
-        InputTransparent = true;
-        Type = ShapeType.Polygon;
-        // relative 0..1: vertical right edge glued to the bubble, apex pointing left-top
-        Points = new List<SkiaPoint> { new(1, 0), new(0, 0), new(1, 1) };
-        BackgroundColor = ChatCell.ColorIncoming;
-        WidthRequest = 8;
-        HeightRequest = 10;
-        Top = 6;
-        Left = 2;
-        UseCache = SkiaCacheType.Operations;
-        CacheSharing = CacheSharingType.Shared; //same cache used fo ALL instances!
-    }
-}
-
-/// <summary>
-/// Deco-triangle tail glued to the right of an outgoing bubble. Same shared-cache trick.
-/// Shown for the first message in a day group for every direction.
-/// </summary>
-public class OutcomingBubbleSign : SkiaShape
-{
-    public OutcomingBubbleSign()
-    {
-        InputTransparent = true;
-        Type = ShapeType.Polygon;
-        // mirrored: vertical left edge glued to the bubble, apex pointing right-top
-        Points = new List<SkiaPoint> { new(0, 0), new(1, 0), new(0, 1) };
-        BackgroundColor = ChatCell.ColorOutgoing;
-        WidthRequest = 8;
-        HeightRequest = 10;
-        Top = 6;
-        Left = -2;
-        UseCache = SkiaCacheType.Operations;
-        CacheSharing = CacheSharingType.Shared; //same cache used fo ALL instances!
-    }
-}
 
 /// <summary>
 /// Recycled chat bubble cell: incoming/outgoing alignment + colors, optional image banner
@@ -494,50 +447,5 @@ public class ChatCell : SkiaDynamicDrawnCell
 
 
 #if DEBUG
-/// <summary>Logs RenderTree hit-test details on every Tapped to expose dead-zone coordinates.</summary>
-public sealed class DiagStack : SkiaStack
-{
-    public override ISkiaGestureListener ProcessGestures(SkiaGesturesParameters args, GestureEventProcessingInfo apply)
-    {
-        if (args.Type == TouchActionResult.Tapped && RenderTree != null)
-        {
-            var adj = RenderTree.AdjustOffset(apply.ChildOffset);
-            var thisOff = TranslateInputCoords(adj, true);
-            float ptY = apply.MappedLocation.Y + thisOff.Y;
-            Console.WriteLine(
-                $"[DiagStack] Tapped ptY={ptY:0} mappedY={apply.MappedLocation.Y:0} offY={thisOff.Y:0} DrawRect=[{DrawingRect.Top:0}..{DrawingRect.Bottom:0}]");
-            foreach (var ch in RenderTree)
-            {
-                var loc = new SkiaSharp.SKPoint(apply.MappedLocation.X + thisOff.X, ptY);
-                bool hit = IsGestureForChild(ch, loc);
-                Debug.WriteLine(
-                    $"  child={ch.Control.GetType().Name} IT={ch.Control.InputTransparent} HitRect=[{ch.HitRect.Top:0}..{ch.HitRect.Bottom:0}] DrawRect=[{ch.Control.DrawingRect.Top:0}..{ch.Control.DrawingRect.Bottom:0}] hit={hit}");
-            }
-        }
 
-        var result = base.ProcessGestures(args, apply);
-        if (args.Type == TouchActionResult.Tapped)
-            Console.WriteLine($"[DiagStack] result={(result == null ? "null" : result.GetType().Name)}");
-        return result;
-    }
-}
-
-/// <summary>Logs on Tapped to confirm what _row sees when dispatched.</summary>
-public sealed class DiagRow : SkiaLayout
-{
-    public override ISkiaGestureListener ProcessGestures(SkiaGesturesParameters args, GestureEventProcessingInfo apply)
-    {
-        if (args.Type == TouchActionResult.Tapped)
-        {
-            SkiaSharp.SKRect hit = CreateHitRect();
-            Console.WriteLine(
-                $"[DiagRow] Tapped mappedY={apply.MappedLocation.Y:0} DrawRect=[{DrawingRect.Top:0}..{DrawingRect.Bottom:0}] HitRect=[{hit.Top:0}..{hit.Bottom:0}]");
-        }
-
-        var result = base.ProcessGestures(args, apply);
-        if (args.Type == TouchActionResult.Tapped)
-            Console.WriteLine($"[DiagRow] result={(result == null ? "null" : result.GetType().Name)}");
-        return result;
-    }
-}
 #endif

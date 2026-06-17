@@ -52,7 +52,7 @@ public partial class ChatPage : BasePageReloadable, IChatCellActions
 
         Canvas = CreateCanvas();
 
-        AttachCanvas();
+        InitializeList();
 
         Content = Canvas;
     }

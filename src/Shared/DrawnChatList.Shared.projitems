@@ -12,10 +12,15 @@
     <Compile Include="$(MSBuildThisFileDirectory)ChatCell.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ChatMessage.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ChatMessagesStack.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)ChatPage.Svg.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ChatPage.Shared.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ChatTheme.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)DiagRow.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)DiagStack.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)IChatCellActions.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)IncomingBubbleSign.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)MockChatApi.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)OutcomingBubbleSign.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)WindowedCollection.cs" />
   </ItemGroup>
 </Project>
