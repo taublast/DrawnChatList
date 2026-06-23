@@ -7,6 +7,9 @@ public static class MauiProgram
 {
 	public static MauiApp CreateMauiApp()
 	{
+		//SkiaLayout.DebugAssertStructure = true; // TEMP: enable structure/offset detectors
+		//SkiaLayout.DebugTraceIndex = 27; // TEMP: trace ContextIndex 27 + neighbours (26/28) across measure/draw/shift
+
 		var builder = MauiApp.CreateBuilder();
 		builder
 			.UseMauiApp<App>()

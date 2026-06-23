@@ -71,13 +71,13 @@ public class ChatCell : SkiaDynamicDrawnCell
     {
         HorizontalOptions = LayoutOptions.Fill;
         Rotation = 180; //the scroll is rotated 180 (inverted chat), rotate the cell back upright
-        FastMeasurement = false; //use fast measurement path with less passes for children fills but faster
+        FastMeasurement = true; //use fast measurement path with less passes for children fills but faster
 
-        IsParentIndependent = true;
+        IsParentIndependent = true; //this was default in base normally
 
         //we will be suing sell in context of MeasureVisible (background measure) so
         //we about ImageDoubleBuffered and GPU for background thread safe processing
-        UseCache = SkiaCacheType.Image; //DoubleBuffered;
+        UseCache = SkiaCacheType.ImageDoubleBuffered;
 
         Children = new List<SkiaControl>
         {

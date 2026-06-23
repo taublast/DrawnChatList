@@ -1,40 +1,23 @@
-using DrawnUi.Draw;
-using SkiaSharp;
 using System.Collections.Specialized;
 using System.Diagnostics;
-using System.Runtime.InteropServices;
+using DrawnUi.Draw;
+using DrawnUi.Views;
+using SkiaSharp;
 
 namespace DrawnChatList;
 
-/// <summary>
-/// Smooth-scroll stack (Ops-style, banded). SkiaStack subclass owning ONE reused Operations (SKPicture)
-/// cache that covers the viewport PLUS the virtualization inflation band (set via the framework's
-/// <see cref="SkiaControl.VirtualisationInflated"/> + <see cref="SkiaControl.VirtualisationInflatedRatio"/>).
-/// The cells are already <see cref="SkiaCacheType.Image"/>-cached, so the picture is a handful of cheap blits.
-///
-/// Plain scrolling within the band is a pure BLIT of the picture translated to the current offset — no
-/// re-record as each cell enters. Re-record only when the viewport leaves the baked band, a cell
-/// content/size changes (dirty), the ItemsSource changes, or the structural fingerprint of the band cells
-/// changes (a silent mid-band resize/visibility).
-///
-/// Three frame paths, cheapest first:
-///  - STATIC (nothing moved/changed): pure blit, layout pass skipped.
-///  - REUSE (scrolled, still inside the band): gated pass refreshes positions + the gesture tree (DrawChild
-///    skipped), then blit.
-///  - RECORD (band exit / dirty / content / fingerprint change): bake the band into the reused picture.
-///
-/// Allocation discipline: Paint delegate pre-allocated; ONE SKPictureRecorder reused; ONE CachedObject
-/// reused; STATIC and REUSE frames allocate nothing.
-/// </summary>
-public class ChatMessagesStack : SkiaStack
+public class ChatMessagesStack : ChatMessagesStackSimple
 {
     public ChatMessagesStack()
     {
-        UseCache = SkiaCacheType.None; // we own DrawDirectInternal + our own Operations cache
         _paintAction = Paint; // pre-alloc: no per-frame delegate/closure allocation
     }
 
-    private SkiaCacheType PlaneCacheType = SkiaCacheType.Image;
+    private static bool UseDoubleBuffering = false;
+    private static bool UseCachedScrolling = false;
+
+
+    private SkiaCacheType PlaneCacheType = SkiaCacheType.Operations;
 
     private readonly Action<DrawingContext> _paintAction;
 
@@ -65,6 +48,56 @@ public class ChatMessagesStack : SkiaStack
         _contentChanged = true; // head-insert/commit & other structure rebuilds invalidate the cache
 
         base.OnStructureChanged();
+    }
+
+    /*
+    /// <summary>
+    /// Head-trim reclaim shifted the whole content frame by <paramref name="deltaPixels"/> with NO new
+    /// pixels — the plane is still pixel-correct, only its content-space anchor is stale. Re-anchor it
+    /// (O(1) rect writes) instead of re-recording: no blink, no record spike, NOT setting _contentChanged.
+    /// If the cut still blinks (or blinks twice as far), the sign is the one runtime unknown — negate delta.
+    /// </summary>
+    public override void OnContentTranslatedVertically(float deltaPixels)
+    {
+        base.OnContentTranslatedVertically(deltaPixels);
+
+        ReanchorPlane(ForegroundPlane, deltaPixels);
+        // the in-flight offscreen plane was baked pre-commit too (the commit never sets _contentChanged,
+        // so it triggered no new record) — re-anchor it as well before the render thread installs it
+        ReanchorPlane(Interlocked.CompareExchange(ref _preparedPlane, null, null), deltaPixels);
+
+        // band + static-frame references live in screen space (destination.Top) — track the same shift,
+        // else the band check reads a huge jump and forces an unnecessary re-record (a spike)
+        _recordOffsetY += deltaPixels;
+        _lastDestination = OffsetTop(_lastDestination, deltaPixels);
+        _lastDrawingRect = OffsetTop(_lastDrawingRect, deltaPixels);
+    }
+
+    private static void ReanchorPlane(CachedObject plane, float dy)
+    {
+        if (plane == null)
+            return;
+        plane.Bounds = OffsetTop(plane.Bounds, dy);
+        plane.RecordingArea = OffsetTop(plane.RecordingArea, dy);
+    }
+
+    private static SKRect OffsetTop(SKRect r, float dy) =>
+        new SKRect(r.Left, r.Top + dy, r.Right, r.Bottom + dy);
+
+        */
+
+    protected override void ApplyBackgroundMeasurementChange(StructureChange change)
+    {
+        base.ApplyBackgroundMeasurementChange(change); // base fires OnAdded
+
+        _contentChanged = true;
+    }
+
+    protected override void OnHeadInsertCommitted()
+    {
+        base.OnHeadInsertCommitted(); // base fires OnAdded
+
+        _contentChanged = true;
     }
 
     public override void UpdateByChild(SkiaControl child)
@@ -153,71 +186,31 @@ public class ChatMessagesStack : SkiaStack
         return new SKPoint(x, y);
     }
 
+    // The plane currently being blitted. ONLY the render thread reads/writes it.
     public CachedObject ForegroundPlane { get; set; }
 
-    public CachedObject CacheA
-    {
-        get => field;
-        set
-        {
-            if (field != value)
-            {
-                DisposeObject(field);
-                field = value;
-            }
-        }
-    }
-
-    public CachedObject CacheB
-    {
-        get => field;
-        set
-        {
-            if (field != value)
-            {
-                DisposeObject(field);
-                field = value;
-            }
-        }
-    }
+    // A freshly rendered plane published by the offscreen thread, not yet installed. The render thread is
+    // the SOLE owner of swapping: it consumes this in UpdatePlanes and promotes it to ForegroundPlane.
+    // The offscreen thread only ever publishes here (via Interlocked), never touches ForegroundPlane or
+    // picks a slot — removes the "background overwrites the plane being drawn" race + the per-frame swap.
+    private CachedObject _preparedPlane;
 
     void UpdatePlanes()
     {
-        if (BackgroundPlane != null)
+        if (!UseDoubleBuffering)
         {
-            SwapPlanes();
+            return;
+        }
+
+        // Consume a freshly prepared plane. Swaps ONLY when a new background render actually arrived, so the
+        // foreground never oscillates between stale/fresh every frame.
+        var prepared = Interlocked.Exchange(ref _preparedPlane, null);
+        if (prepared != null)
+        {
+            var old = ForegroundPlane;
+            ForegroundPlane = prepared;
             _cacheValid = true;
-        }
-    }
-
-    void SwapPlanes()
-    {
-        if (ForegroundPlane == CacheA)
-        {
-            ForegroundPlane = CacheB;
-        }
-        else
-        {
-            ForegroundPlane = CacheA;
-        }
-    }
-
-    CachedObject BackgroundPlane
-    {
-        get
-        {
-            return ForegroundPlane == CacheA ? CacheB : CacheA;
-        }
-        set
-        {
-            if (ForegroundPlane == CacheA)
-            {
-                CacheB = value;
-            }
-            else
-            {
-                CacheA = value;
-            }
+            DisposeObject(old);
         }
     }
 
@@ -267,6 +260,8 @@ public class ChatMessagesStack : SkiaStack
             CreateCache(context, drawingRect);
         }
 
+        // Both modes blit here: double-buffer blits the current plane while a new one bakes; sync blits the
+        // plane just recorded this frame. (Skipping this in sync mode left record frames empty/flickering.)
         _lastDestination = destination;
         _lastDrawingRect = drawingRect;
         DrawCache(context, destination);
@@ -327,117 +322,141 @@ public class ChatMessagesStack : SkiaStack
 
     void CreateCache(DrawingContext context, SKRect recordArea)
     {
+
+        if (!UseDoubleBuffering)
+        {
+            if (PlaneCacheType == SkiaCacheType.Operations)
+            {
+                _recorder ??= new SKPictureRecorder();
+                var rc = context.CreateForRecordingOperations(_recorder, recordArea);
+
+                Paint(rc); // => DrawStack, DrawStackVisibleChildren..
+
+                //DrawWithClipAndTransforms(rc, drawingRect, true, true, _paintAction);
+                var picture = _recorder.EndRecording();
+
+                dirtyAfterCache = 0;
+                if (ForegroundPlane == null)
+                {
+                    ForegroundPlane = new CachedObject(SkiaCacheType.Operations, picture, context.Destination, recordArea);
+                }
+                else
+                {
+                    ForegroundPlane.Picture?.Dispose();
+                    ForegroundPlane.Picture = picture;
+                    ForegroundPlane.Bounds = context.Destination;
+                    ForegroundPlane.RecordingArea = recordArea;
+                }
+            }
+            else
+            {
+                var cacheType = PlaneCacheType == SkiaCacheType.GPU ? SkiaCacheType.GPU : SkiaCacheType.Image;
+
+                //create surface
+                var width = (int)recordArea.Width;
+                var height = (int)recordArea.Height;
+
+                SKSurface surface;
+                bool needCreateSurface = !CheckCachedObjectValid(ForegroundPlane, recordArea, context.Context)
+                                         && cacheType != SkiaCacheType.GPU;
+                if (!needCreateSurface)
+                {
+                    //reusing existing surface
+                    surface = ForegroundPlane.Surface;
+                    if (surface == null || surface.Handle == 0)
+                    {
+                        Super.Log("CreateRenderingObject failed to reuse surface!");
+                        return; //would be totally unexpected
+                    }
+
+                    ForegroundPlane.PreserveSourceFromDispose = true; //we will dispose that source in this new object
+
+                    if (!IsCacheComposite)
+                        surface.Canvas.Clear();
+                }
+                else
+                {
+                    surface = CreateSurface(width, height, cacheType == SkiaCacheType.GPU);
+                    if (surface == null)
+                    {
+                        return; //would be totally unexpected
+                    }
+                }
+
+                //record
+                var recordingContext = context.CreateForRecordingImage(surface, recordArea.Size);
+                recordingContext.Context.IsRecycled = !needCreateSurface;
+
+                // Translate the canvas to start drawing at (0,0)
+                recordingContext.Context.Canvas.Translate(-recordArea.Left, -recordArea.Top);
+
+                // Perform the drawing action
+                Paint(recordingContext);
+
+                recordingContext.Context.Canvas.Translate(recordArea.Left, recordArea.Top);
+                recordingContext.Context.Canvas.Flush();
+
+                if (ForegroundPlane == null)
+                {
+                    ForegroundPlane = new CachedObject(cacheType, surface, context.Destination, recordArea)
+                    {
+                        SurfaceIsRecycled = recordingContext.Context.IsRecycled
+                    };
+                }
+                else
+                {
+                    if (needCreateSurface)
+                    {
+                        ForegroundPlane.Surface = surface;
+                    }
+                    ForegroundPlane.Image?.Dispose();
+                    ForegroundPlane.Image = surface.Snapshot();
+                    ForegroundPlane.Bounds = context.Destination;
+                    ForegroundPlane.RecordingArea = recordArea;
+                    ForegroundPlane.SurfaceIsRecycled = recordingContext.Context.IsRecycled;
+                }
+            }
+
+            return;
+        }
+
         PushToOffscreenRendering(() =>
         {
             //will be executed on background thread in parallel
-            BackgroundPlane = CreateRenderObject(context, recordArea);
+            if (IsDisposed || IsDisposing)
+                return;
+
+            var rendered = CreateRenderObject(context, recordArea);
+
+            // Publish to the prepared slot; the render thread installs it (sole swapper). If a previous
+            // prepared plane was never consumed, dispose it here — never the live ForegroundPlane.
+            var stale = Interlocked.Exchange(ref _preparedPlane, rendered);
+
+            if (stale.Surface != null && Superview is DrawnView view)
+            {
+                view.ReturnSurface(stale.Surface);
+                stale.Surface = null;
+            }
+
+            DisposeObject(stale);
             Repaint();
         });
-        
-        return;
-        
-        if (PlaneCacheType == SkiaCacheType.Operations)
-        {
-            _recorder ??= new SKPictureRecorder();
-            var rc = context.CreateForRecordingOperations(_recorder, recordArea);
 
-            Paint(rc); // => DrawStack, DrawStackVisibleChildren..
 
-            //DrawWithClipAndTransforms(rc, drawingRect, true, true, _paintAction);
-            var picture = _recorder.EndRecording();
 
-            dirtyAfterCache = 0;
-            if (ForegroundPlane == null)
-            {
-                ForegroundPlane = new CachedObject(SkiaCacheType.Operations, picture, context.Destination, recordArea);
-            }
-            else
-            {
-                ForegroundPlane.Picture?.Dispose();
-                ForegroundPlane.Picture = picture;
-                ForegroundPlane.Bounds = context.Destination;
-                ForegroundPlane.RecordingArea = recordArea;
-            }
-        }
-        else
-        {
-            var cacheType = PlaneCacheType == SkiaCacheType.GPU ? SkiaCacheType.GPU : SkiaCacheType.Image;
-
-            //create surface
-            var width = (int)recordArea.Width;
-            var height = (int)recordArea.Height;
-            
-            SKSurface surface;
-            bool needCreateSurface = !CheckCachedObjectValid(ForegroundPlane, recordArea, context.Context) 
-                                     && cacheType != SkiaCacheType.GPU;
-            if (!needCreateSurface)
-            {
-                //reusing existing surface
-                surface = ForegroundPlane.Surface;
-                if (surface == null || surface.Handle == 0)
-                {
-                    Super.Log("CreateRenderingObject failed to reuse surface!");
-                    return; //would be totally unexpected
-                }
-
-                ForegroundPlane.PreserveSourceFromDispose = true; //we will dispose that source in this new object
-
-                if (!IsCacheComposite)
-                    surface.Canvas.Clear();
-            }
-            else
-            {
-                surface = CreateSurface(width, height, cacheType == SkiaCacheType.GPU);
-                if (surface == null)
-                {
-                    return; //would be totally unexpected
-                }
-            }
-
-            //record
-            var recordingContext = context.CreateForRecordingImage(surface, recordArea.Size);
-            recordingContext.Context.IsRecycled = !needCreateSurface;
-
-            // Translate the canvas to start drawing at (0,0)
-            recordingContext.Context.Canvas.Translate(-recordArea.Left, -recordArea.Top);
-
-            // Perform the drawing action
-            Paint(recordingContext);
-
-            recordingContext.Context.Canvas.Translate(recordArea.Left, recordArea.Top);
-            recordingContext.Context.Canvas.Flush();
-
-            if (ForegroundPlane == null)
-            {
-                ForegroundPlane = new CachedObject(cacheType, surface, context.Destination, recordArea)
-                {
-                    SurfaceIsRecycled = recordingContext.Context.IsRecycled
-                };
-            }
-            else
-            {
-                if (needCreateSurface)
-                {
-                    ForegroundPlane.Surface = surface;
-                }
-                ForegroundPlane.Image?.Dispose();
-                ForegroundPlane.Image = surface.Snapshot();
-                ForegroundPlane.Bounds = context.Destination;
-                ForegroundPlane.RecordingArea = recordArea;
-                ForegroundPlane.SurfaceIsRecycled = recordingContext.Context.IsRecycled;
-            }
-        }
     }
 
     public override void OnWillDisposeWithChildren()
     {
         base.OnWillDisposeWithChildren();
 
+        DisposeObject(Interlocked.Exchange(ref _preparedPlane, null));
         DisposeObject(ForegroundPlane);
     }
 
     public override void OnDisposing()
     {
+        DisposeObject(Interlocked.Exchange(ref _preparedPlane, null));
         ForegroundPlane = null;
         _recorder?.Dispose();
         _recorder = null;

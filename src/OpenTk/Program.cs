@@ -14,6 +14,9 @@ using SkiaSharp;
 Super.UseDrawnUi()
     .Build();
 
+// slow background measurement so it lags the scroll (simulate slow device) -> provoke structural overlap
+DrawnUi.Draw.SkiaLayout.DebugBackgroundMeasureDelayMs = 60;
+
 // OpenTk has no DI host, so Super.Services is null and SkiaImageManager.GetHttpClient() returns null
 // -> remote (URL) images never load (blank/gray banners). Register a minimal provider that hands out
 // a shared HttpClient so SkiaImageManager can fetch https image sources.
@@ -107,9 +110,9 @@ namespace DrawnChatList
             _lastFrameTicks = now;
 
 
-            return; //uncomment for user manual testing  (comment out to run AI probes)
+            //return; //uncomment for user manual testing  (comment out to run AI probes)
 
-            OffsetTest();
+            //OffsetTest();
             //return;
 
             // PHASE 0: overscroll the BOTTOM (newest) edge and watch the spring-back every frame.
@@ -140,7 +143,8 @@ namespace DrawnChatList
             //ScenarioTest(); // uncomment to run 4-scenario tap verification
             //DriveAutoPan();
             //DayChipBugTest();
-            WalkAndDump();
+            //WalkAndDump();
+            SlowScrollAndCheck();
 
             _f++;
 
@@ -432,6 +436,57 @@ namespace DrawnChatList
         // which is the user's bug: a day-chip cell grew on recycle but the cell below kept its old top.
         private int _wPhase, _wSettle, _wStep;
         private int _wLoads;
+
+        // SLOW continuous drag (no settle) so background measurement lags the viewport — the condition
+        // that produces structural overlap. CheckStructureIntegrity (called every frame) flags it.
+        private int _ssPhase;
+        private bool _ssDown;
+        private float _ssY;
+        private void SlowScrollAndCheck()
+        {
+            float vpH = ClientSize.Y, cx = ClientSize.X / 2f;
+            float offY = _scene.MainScroll.ViewportOffsetY;
+            if (_f < 40) { _f++; return; } // let initial measure finish
+
+            if (_ssPhase == 0) { Console.WriteLine("[SS] slow drag INTO history (measure lags)..."); _ssPhase = 1; }
+
+            float dir = _ssPhase == 1 ? +5f : -5f; // into history (drag down) / back to msg0 (drag up)
+
+            if (!_ssDown)
+            {
+                _ssY = _ssPhase == 1 ? vpH * 0.2f : vpH * 0.8f;
+                _canvas.HandleDesktopPointerDown(cx, _ssY, ClientSize.X, ClientSize.Y);
+                _ssDown = true;
+            }
+            else
+            {
+                _ssY += dir;
+                if (_ssY < vpH * 0.15f || _ssY > vpH * 0.85f)
+                {
+                    _canvas.HandleDesktopPointerUp(cx, _ssY, ClientSize.X, ClientSize.Y);
+                    _ssDown = false; // re-grab next frame (finger reposition) to keep scrolling
+                }
+                else
+                {
+                    _canvas.HandleDesktopPointerMove(cx, _ssY, true, ClientSize.X, ClientSize.Y);
+                }
+            }
+
+            _f++;
+            if (_f % 30 == 0)
+                Console.WriteLine($"[SS] p{_ssPhase} offY={offY:0} win=[{_scene.WindowStart}..{_scene.WindowEnd}] viol={_violations}");
+
+            if (_ssPhase == 1 && (_scene.WindowStart <= 0 || offY < -20000))
+            {
+                _ssPhase = 2; _ssDown = false;
+                Console.WriteLine("[SS] now slow drag BACK to msg0, watch OVERLAP...");
+            }
+            else if (_ssPhase == 2 && offY >= -2f)
+            {
+                Console.WriteLine($"[SS] DONE reached msg0 offY={offY:0} violations={_violations}");
+                Close();
+            }
+        }
 
         private void WalkAndDump()
         {

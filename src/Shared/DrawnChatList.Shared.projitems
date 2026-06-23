@@ -12,6 +12,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)ChatCell.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ChatMessage.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ChatMessagesStack.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)ChatMessagesStackSimple.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ChatPage.Svg.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ChatPage.Shared.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ChatTheme.cs" />

@@ -4,11 +4,8 @@ using AppoMobi.Specials;
 
 namespace DrawnChatList;
 
-/// <summary>
-/// GPU reproduction using the REAL ChatCell + ChatMessage + windowing copied from the Android repro
-/// ChatPage, so the OpenTK sample exercises exactly what breaks on device (no simplified cell). Inverted
-/// scroll + windowed 150-cap ItemsSource + bidirectional LoadMore + trim, UsePlaneCache on.
-/// </summary>
+
+
 public sealed partial class ChatPage : BindableObject, IChatCellActions
 {
 

@@ -11,6 +11,30 @@
  
 public partial class ChatPage  
 {
+    // Windowed source, INVERTED: _items[i] == _all[_windowEnd - 1 - i].
+    // The window covers _all[_windowStart .. _windowEnd), _items shows it newest-first.
+    private readonly ObservableRangeCollection<ChatMessage> _items = new();
+    private readonly List<ChatMessage> _all = new(); // stands in for a SQLite-paged source
+    private int _windowStart;
+    private int _windowEnd;
+
+    private const int TotalItems = 322;
+    private const int LoadBatch = 25;
+
+    // Memory cap: trim BEFORE loading, opposite end (see DevPage for the full contract).
+    private const bool LimitMemoryWindow = true;
+    private const int MaxItemsInMemory = 100;
+
+    private bool _scrollDownShown;
+    private bool _wantScrollDown; //last computed condition, restored when the reply panel closes
+    private long _suppressFabUntilMs; //ignore transient offsets while programmatically returning to newest
+
+    private ChatMessage _replyTo;
+    private string _fullscreenUpgradeUrl; //hi-res to load after the cached small one displayed
+    private bool _hidingOverlay;
+
+    private readonly MockChatApi _api = new();
+
     private static readonly string[] MockFiles =
     {
         "report_2026.pdf (1.2 MB)",
@@ -20,7 +44,7 @@ public partial class ChatPage
     };
 
     Canvas Canvas;
-    public SkiaLayout ChatStack;
+    public ChatMessagesStack ChatStack;
     public SkiaScroll MainScroll;
     SkiaEditor Editor;
     SkiaLayer FullscreenOverlay;
@@ -138,10 +162,11 @@ public partial class ChatPage
                                         {
                                             BackgroundMeasurementBatchSize = LoadBatch,
                                             VirtualisationInflatedRatio = 1.0,
-                                            ReserveTemplates = LoadBatch,
+                                            ReserveTemplates = LoadBatch*2, 
+                                            ItemTemplatePoolSize=MaxItemsInMemory+LoadBatch+5,
                                             ItemTemplateType = typeof(ChatCell),
                                             ItemsSource = _items,
-                                            RecyclingTemplate = RecyclingTemplate.Enabled,
+                                            RecyclingTemplate = RecyclingTemplate.Disabled,
                                             MeasureItemsStrategy = MeasuringStrategy.MeasureVisible,
                                             Spacing = 4,
                                             Padding = new Thickness(0, 8),
@@ -372,7 +397,23 @@ public partial class ChatPage
                     Rotation = -20,
                     ZIndex = 100,
                 }.ObserveProperty(() => ChatStack, nameof(SkiaLayout.DebugString),
-                    me => { me.Text = ChatStack.DebugString; }),
+                    me =>
+                    {
+                        me.Text = ChatStack.DebugString;
+                    }),
+
+#if DEBUG
+                new SkiaLabelFps()
+                {
+                    Margin = new(0, 0, 4, 54),
+                    VerticalOptions = LayoutOptions.End,
+                    HorizontalOptions = LayoutOptions.End,
+                    Rotation = -45,
+                    BackgroundColor = Colors.DarkRed,
+                    TextColor = Colors.White,
+                    ZIndex = 110,
+                },
+#endif
 
                 // SCROLL TO LAST MESSAGE: appears after scrolling 100+ pts into history
                 new SkiaShape
@@ -421,7 +462,6 @@ public partial class ChatPage
                             UseCache = SkiaCacheType.GPU,
                             Aspect = TransformAspect.AspectFitFill,
                             EraseChangedContent = false, //keep small image shown while hi-res loads
-                            LoadSourceOnFirstDraw = false,
                             HorizontalOptions = LayoutOptions.Fill,
                             VerticalOptions = LayoutOptions.Center,
                         }.Assign(out FullscreenImage).Adapt(me =>
@@ -659,40 +699,7 @@ public partial class ChatPage
         return batch;
     }
 
-    /// <summary>
-    /// History: the scroll's plain bottom LoadMore = visually scrolling UP in the inverted chat.
-    /// Older messages get APPENDED at the list end. Memory cap trims the newest end (list head) first.
-    /// </summary>
-    private void LoadOlder()
-    {
-        if (_windowStart <= 0)
-            return;
-
-        int n = Math.Min(LoadBatch, _windowStart);
-
-        if (LimitMemoryWindow)
-        {
-            int over = _items.Count + n - MaxItemsInMemory;
-            if (over > 0)
-            {
-                Debug.WriteLine($"[CHAT] TrimNewest {_windowEnd - over}..{_windowEnd - 1}");
-                _items.RemoveRange(0, over); // list head = newest
-                _windowEnd -= over;
-            }
-        }
-
-        _windowStart -= n;
-        Debug.WriteLine($"[CHAT] LoadOlder {_windowStart}..{_windowStart + n - 1}");
-        var loadedData = ReversedRange(_windowStart, n);
-
-        //todo start preloading preview images in background
-        _preloadCancellation?.Cancel();
-        _preloadCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        _ = PreloadImages(loadedData, _preloadCancellation.Token);
-
-        _items.AddRange(loadedData); // one notification for the whole batch
-    }
-
+   
     private CancellationTokenSource _preloadCancellation;
 
     private async Task PreloadImages(List<ChatMessage> items, CancellationToken cancellationToken)
@@ -733,31 +740,107 @@ public partial class ChatPage
         if (_windowEnd >= _all.Count)
             return;
 
-        int n = Math.Min(LoadBatch, _all.Count - _windowEnd);
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
 
+            int n = Math.Min(LoadBatch, _all.Count - _windowEnd);
+
+            Debug.WriteLine($"[CHAT] LoadNewer {_windowEnd}..{_windowEnd + n - 1}");
+
+            var loadedData = ReversedRange(_windowEnd, n);
+
+            //todo start preloading preview images in background
+            // Cancel previous preloading
+            _preloadCancellation?.Cancel();
+            _preloadCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            _ = PreloadImages(loadedData, _preloadCancellation.Token);
+
+            // Newest direction: keep the window at the cap ATOMICALLY — trim the oldest tail BEFORE
+            // inserting the new head batch, in the same UI turn. Avoids the grow-to-(cap+batch)-then-
+            // deferred-shrink (the 125->100 flash) and lets the head insert translate fewer resident
+            // cells. No post-commit deferred trim on this path.
+            ChatStack.OnAdded = null;
+
+            if (LimitMemoryWindow)
+            {
+                int over = _items.Count + n - MaxItemsInMemory;
+                if (over > 0)
+                {
+                    over = Math.Min(over, _items.Count); // never remove more than present
+                    _items.RemoveRange(_items.Count - over, over); // list tail = oldest
+                    _windowStart += over;
+                }
+            }
+
+            _items.InsertRange(0, loadedData); // insert AFTER the trim, one notification for the whole batch
+            _windowEnd += n;
+        });
+
+    }
+
+    void LimitSourceForNewer()
+    {
         if (LimitMemoryWindow)
         {
-            int over = _items.Count + n - MaxItemsInMemory;
-            if (over > 0)
+            MainThread.BeginInvokeOnMainThread(() =>
             {
-                Debug.WriteLine($"[CHAT] TrimOldest {_windowStart}..{_windowStart + over - 1}");
-                _items.RemoveRange(_items.Count - over, over); // list tail = oldest
-                _windowStart += over;
-            }
+                int over = _items.Count - MaxItemsInMemory;
+                if (over > 0)
+                {
+                    Debug.WriteLine($"[CHAT] TrimOldest {_windowStart}..{_windowStart + over - 1}");
+                    _items.RemoveRange(_items.Count - over, over); // list tail = oldest
+                    _windowStart += over;
+                }
+            });
+            ChatStack.OnAdded = null;
         }
+    }
 
-        Debug.WriteLine($"[CHAT] LoadNewer {_windowEnd}..{_windowEnd + n - 1}");
+    void LimitSourceForOlder()
+    {
+        if (LimitMemoryWindow)
+        {
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                int over = _items.Count - MaxItemsInMemory;
+                if (over > 0)
+                {
+                    Debug.WriteLine($"[CHAT] TrimNewest {_windowEnd - over}..{_windowEnd - 1}");
+                    _items.RemoveRange(0, over); // list head = newest
+                    _windowEnd -= over;
+                }
+            });
+            ChatStack.OnAdded = null;
+        }
+    }
 
-        var loadedData = ReversedRange(_windowEnd, n);
+    /// <summary>
+    /// History: the scroll's plain bottom LoadMore = visually scrolling UP in the inverted chat.
+    /// Older messages get APPENDED at the list end. Memory cap trims the newest end (list head) first.
+    /// </summary>
+    private void LoadOlder()
+    {
+        if (_windowStart <= 0)
+            return;
 
-        //todo start preloading preview images in background
-        // Cancel previous preloading
-        _preloadCancellation?.Cancel();
-        _preloadCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        _ = PreloadImages(loadedData, _preloadCancellation.Token);
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
 
-        _items.InsertRange(0, loadedData); // one notification for the whole batch
-        _windowEnd += n;
+            int n = Math.Min(LoadBatch, _windowStart);
+
+            _windowStart -= n;
+            Debug.WriteLine($"[CHAT] LoadOlder {_windowStart}..{_windowStart + n - 1}");
+            var loadedData = ReversedRange(_windowStart, n);
+
+            //todo start preloading preview images in background
+            _preloadCancellation?.Cancel();
+            _preloadCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            _ = PreloadImages(loadedData, _preloadCancellation.Token);
+
+            ChatStack.OnAdded = LimitSourceForOlder;
+
+           _items.AddRange(loadedData); // one notification for the whole batch
+        });
     }
 
     /// <summary>
@@ -796,15 +879,9 @@ public partial class ChatPage
         if (!windowAtPresent)
             return false;
 
+        // Head insert (newest) -> cut the opposite end (oldest tail) AFTER the insert is measured/applied.
         if (LimitMemoryWindow)
-        {
-            int over = _items.Count + 1 - MaxItemsInMemory;
-            if (over > 0)
-            {
-                _items.RemoveRange(_items.Count - over, over); // trim oldest
-                _windowStart += over;
-            }
-        }
+            ChatStack.OnAdded = LimitSourceForNewer;
 
         _windowEnd++;
         _items.Insert(0, msg);
@@ -903,28 +980,6 @@ public partial class ChatPage
         StatusLabel.TextColor = typing ? ChatTheme.AccentBright : ChatTheme.IconMuted;
     }
 
-    // Windowed source, INVERTED: _items[i] == _all[_windowEnd - 1 - i].
-    // The window covers _all[_windowStart .. _windowEnd), _items shows it newest-first.
-    private readonly ObservableRangeCollection<ChatMessage> _items = new();
-    private readonly List<ChatMessage> _all = new(); // stands in for a SQLite-paged source
-    private int _windowStart;
-    private int _windowEnd;
 
-    private const int TotalItems = 322;
-    private const int LoadBatch = 50;
-
-    // Memory cap: trim BEFORE loading, opposite end (see DevPage for the full contract).
-    private const bool LimitMemoryWindow = true;
-    private const int MaxItemsInMemory = 250;
-
-    private bool _scrollDownShown;
-    private bool _wantScrollDown; //last computed condition, restored when the reply panel closes
-    private long _suppressFabUntilMs; //ignore transient offsets while programmatically returning to newest
-
-    private ChatMessage _replyTo;
-    private string _fullscreenUpgradeUrl; //hi-res to load after the cached small one displayed
-    private bool _hidingOverlay;
-
-    private readonly MockChatApi _api = new();
 
 }
