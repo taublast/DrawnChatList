@@ -50,41 +50,26 @@ public class ChatMessagesStack : ChatMessagesStackSimple
         base.OnStructureChanged();
     }
 
-    /*
-    /// <summary>
-    /// Head-trim reclaim shifted the whole content frame by <paramref name="deltaPixels"/> with NO new
-    /// pixels — the plane is still pixel-correct, only its content-space anchor is stale. Re-anchor it
-    /// (O(1) rect writes) instead of re-recording: no blink, no record spike, NOT setting _contentChanged.
-    /// If the cut still blinks (or blinks twice as far), the sign is the one runtime unknown — negate delta.
-    /// </summary>
-    public override void OnContentTranslatedVertically(float deltaPixels)
+    /// <summary>Set by the page while a programmatic jump (e.g. scroll-to-oldest) is in flight, from
+    /// issue until the target lands. Auto-LoadMore must not mutate the window mid-jump — it would shift
+    /// _items and make the pending ScrollToIndex target drift. The page clears it once arrived.</summary>
+    public bool SuppressLoadMore;
+
+    public override bool ShouldTriggerLoadMore(ScaledRect viewport, LoadMoreDirection direction)
     {
-        base.OnContentTranslatedVertically(deltaPixels);
+        if (SuppressLoadMore)
+            return false;
 
-        ReanchorPlane(ForegroundPlane, deltaPixels);
-        // the in-flight offscreen plane was baked pre-commit too (the commit never sets _contentChanged,
-        // so it triggered no new record) — re-anchor it as well before the render thread installs it
-        ReanchorPlane(Interlocked.CompareExchange(ref _preparedPlane, null, null), deltaPixels);
+        if (Parent is SkiaScroll scroll)
+        {
+            if (scroll.OrderedScrollToIndexIsSet || scroll.OrderedScrollTo.IsValid)
+            {
+                return false;
+            }
+        }
 
-        // band + static-frame references live in screen space (destination.Top) — track the same shift,
-        // else the band check reads a huge jump and forces an unnecessary re-record (a spike)
-        _recordOffsetY += deltaPixels;
-        _lastDestination = OffsetTop(_lastDestination, deltaPixels);
-        _lastDrawingRect = OffsetTop(_lastDrawingRect, deltaPixels);
+        return base.ShouldTriggerLoadMore(viewport, direction);
     }
-
-    private static void ReanchorPlane(CachedObject plane, float dy)
-    {
-        if (plane == null)
-            return;
-        plane.Bounds = OffsetTop(plane.Bounds, dy);
-        plane.RecordingArea = OffsetTop(plane.RecordingArea, dy);
-    }
-
-    private static SKRect OffsetTop(SKRect r, float dy) =>
-        new SKRect(r.Left, r.Top + dy, r.Right, r.Bottom + dy);
-
-        */
 
     protected override void ApplyBackgroundMeasurementChange(StructureChange change)
     {
@@ -96,6 +81,13 @@ public class ChatMessagesStack : ChatMessagesStackSimple
     protected override void OnHeadInsertCommitted()
     {
         base.OnHeadInsertCommitted(); // base fires OnAdded
+
+        _contentChanged = true;
+    }
+
+    public override void OnTemplatesAvailable()
+    {
+        base.OnTemplatesAvailable();
 
         _contentChanged = true;
     }

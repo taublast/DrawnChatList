@@ -50,6 +50,10 @@ public partial class ChatPage
     SkiaLayer FullscreenOverlay;
     SkiaImage FullscreenImage;
     SkiaShape BtnScrollToEnd;
+#if DEBUG
+    SkiaShape BtnScrollToOldest; //debug helper: jump to the very first (oldest) message
+    private bool _scrollToOldestShown;
+#endif
     SkiaLayout ReplyPanel;
     SkiaLabel ReplyName;
     SkiaLabel ReplyText;
@@ -444,6 +448,39 @@ public partial class ChatPage
                     }
                 }.Assign(out BtnScrollToEnd).OnTapped(me => ScrollToNewest(true)),
 
+#if DEBUG
+                // SCROLL TO OLDEST (debug only): same spot as the scroll-to-latest FAB, shown while
+                // at the newest message. Arrow points UP (chevron rotated 180).
+                new SkiaShape
+                {
+                    Type = ShapeType.Circle,
+                    UseCache = SkiaCacheType.GPU,
+                    IsVisible = true,
+                    Opacity = 1,
+                    WidthRequest = 46,
+                    LockRatio = 1,
+                    BackgroundColor = Color.Parse("#F217212B"),
+                    HorizontalOptions = LayoutOptions.End,
+                    VerticalOptions = LayoutOptions.End,
+                    Margin = new Thickness(0, 0, 10, 120),
+                    ZIndex = 90,
+                    Children =
+                    {
+                        new SkiaSvg
+                        {
+                            UseCache = SkiaCacheType.Operations,
+                            SvgString = SvgChevronDown,
+                            Rotation = 180, //point up
+                            TintColor = Color.FromArgb("#AAFFFFFF"),
+                            HeightRequest = 24,
+                            LockRatio = 1,
+                            HorizontalOptions = LayoutOptions.Center,
+                            VerticalOptions = LayoutOptions.Center,
+                        },
+                    }
+                }.Assign(out BtnScrollToOldest).OnTapped(me => ScrollToOldest(true)),
+#endif
+
                 // FULLSCREEN IMAGE VIEWER POPUP: hidden overlay above everything, tap to close
                 // (the original app's GalleryPopup pattern, single image instead of carousel)
                 new SkiaLayer
@@ -592,6 +629,17 @@ public partial class ChatPage
     {
         var away = Math.Abs(e.Units.Y);
 
+        // Jump-to-oldest in flight: release the LoadMore block once the ordered scroll has committed
+        // AND the oldest item is actually visible (= we arrived). Parked at the oldest, LoadMore is
+        // harmless (LoadOlder no-ops at windowStart 0; LoadNewer needs the far/newest edge), so it's
+        // safe to re-enable here. Done before the FAB early-return so it runs during the jump.
+        if (ChatStack.SuppressLoadMore
+            && !MainScroll.OrderedScrollToIndexIsSet
+            && ChatStack.LastVisibleIndex >= _items.Count - 1)
+        {
+            ChatStack.SuppressLoadMore = false;
+        }
+
         // While returning to the newest message programmatically (send/FAB), the head-insert
         // viewport pinning and the scroll animation produce transient offsets that would
         // flash the FAB (a tall image bubble shifts by more than the threshold). Ignore them
@@ -608,6 +656,11 @@ public partial class ChatPage
         // 100+ pts away into history -> offer the way back
         _wantScrollDown = away > 100;
         ShowScrollDownButton(_wantScrollDown);
+
+#if DEBUG
+        // mirror: at the newest message -> offer the jump to the oldest
+        ShowScrollToOldestButton(away < 12 && _windowEnd == _all.Count);
+#endif
     }
 
     private async void ShowScrollDownButton(bool show)
@@ -901,12 +954,60 @@ public partial class ChatPage
             _windowEnd = _all.Count;
             _windowStart = Math.Max(0, _windowEnd - LoadBatch);
             _items.ReplaceRangeReset(ReversedRange(_windowStart, _windowEnd - _windowStart));
-            return; //Reset scrolls to content start = newest; FAB already hidden above
+            //return; //Reset scrolls to content start = newest; FAB already hidden above
         }
 
         // top of the inverted scroll = index 0 = newest = visual bottom
         MainScroll.ScrollToIndex(0, animate, RelativePositionType.Start, true);
     }
+
+#if DEBUG
+    /// <summary>
+    /// Debug helper: jump to the very first (oldest) message. Rebases the window to the start of
+    /// history, then scrolls to the visual top (oldest = last resident item in the inverted list).
+    /// </summary>
+    private void ScrollToOldest(bool animate)
+    {
+        _suppressFabUntilMs = Environment.TickCount64 + 1200;
+
+        // Block auto-LoadMore for the whole jump: while the ordered scroll settles (and its post-commit
+        // animation runs) a LoadNewer/LoadOlder would head-insert/append into _items and the pending
+        // ScrollToIndex target would drift. Cleared in OnChatScrolled once the oldest is on screen.
+        ChatStack.SuppressLoadMore = true;
+
+        if (_windowStart != 0)
+        {
+            _windowStart = 0;
+            _windowEnd = Math.Min(LoadBatch, _all.Count);
+            _items.ReplaceRangeReset(ReversedRange(_windowStart, _windowEnd - _windowStart));
+        }
+
+        MainScroll.ScrollToIndex(_items.Count - 1, animate, RelativePositionType.Start, true);
+    }
+
+    private async void ShowScrollToOldestButton(bool show)
+    {
+        if (show && ReplyPanel != null && ReplyPanel.IsVisible)
+            show = false;
+
+        if (show == _scrollToOldestShown || BtnScrollToOldest == null)
+            return;
+
+        _scrollToOldestShown = show;
+
+        if (show)
+        {
+            BtnScrollToOldest.IsVisible = true;
+            await BtnScrollToOldest.FadeToAsync(1, 150);
+        }
+        else
+        {
+            await BtnScrollToOldest.FadeToAsync(0, 150);
+            if (!_scrollToOldestShown)
+                BtnScrollToOldest.IsVisible = false;
+        }
+    }
+#endif
 
     /// <summary>
     /// Long-press on a bubble: quote it in the typing bar.
