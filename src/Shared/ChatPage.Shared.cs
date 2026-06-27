@@ -202,7 +202,7 @@ public partial class ChatPage
                                             BackgroundMeasurementBatchSize = LoadBatch,
                                             VirtualisationInflatedRatio = 1.5,
                                             ReserveTemplates = LoadBatch * 2,
-                                            ItemTemplatePoolSize = MaxItemsInMemory + LoadBatch + 5,
+                                            ItemTemplatePoolSize = MaxItemsInMemory + LoadBatch + 5, //prefill
                                             ItemTemplateType = typeof(ChatCell),
                                             ItemsSource = _items,
                                             RecyclingTemplate = RecyclingTemplate.Disabled,
