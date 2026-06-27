@@ -74,6 +74,12 @@
 	  <ProjectReference Include="..\..\..\DrawnUi\src\Maui\DrawnUi\DrawnUi.Maui.csproj" />
 	</ItemGroup>
 
+	<ItemGroup>
+	  <MauiAsset Update="Resources\Raw\Lottie\iosloader.json">
+	    <CopyToOutputDirectory></CopyToOutputDirectory>
+	  </MauiAsset>
+	</ItemGroup>
+
 
 	<Import Project="..\Shared\DrawnChatList.Shared.projitems" Label="Shared" />
 

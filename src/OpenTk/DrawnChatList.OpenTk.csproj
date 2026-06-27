@@ -10,6 +10,19 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="Images\banana.gif" />
+    <None Remove="Lottie\iosloader.json" />
+  </ItemGroup>
+
+  <!-- OpenTk loads raw assets (e.g. "Images/banana.gif") relative to the OUTPUT dir, so they must be
+       copied there. Plain <Content> in a WinExe SDK project is NOT copied by default — the missing
+       CopyToOutputDirectory is why the asset never loaded. -->
+  <ItemGroup>
+    <Content Include="Images\banana.gif" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Lottie\iosloader.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Required for Linux publish to include native Skia runtime -->
     <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="4.147.0-preview.2.1" />
   </ItemGroup>

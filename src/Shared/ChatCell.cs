@@ -1,5 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Threading;
+using System.Threading.Tasks;
 using AppoMobi.Gestures;
 using DrawnUi;
 using DrawnUi.Controls;
@@ -49,6 +51,23 @@ public class ChatCell : SkiaDynamicDrawnCell
     public const string SvgAttachment =
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M16.5 6v11.5a4 4 0 0 1-8 0V5a2.5 2.5 0 0 1 5 0v10.5a1 1 0 0 1-2 0V6H10v9.5a2.5 2.5 0 0 0 5 0V5a4 4 0 0 0-8 0v12.5a5.5 5.5 0 0 0 11 0V6z'/></svg>";
 
+
+    #region HIGHLIGHT
+
+
+    // Jump highlight: full-row band behind the bubble, instant tint on draw,
+    // hold, then fade out so it's gone ~5s after the cell was drawn.
+    private const double HighlightPeakOpacity = 0.4;
+    private const int HighlightHoldStillMs = 2500;
+    private const float HighlightFadeMs = 1500;
+    private const long HighlightFreshMs = 4000; // older requests are consumed without playing (recycle)
+
+    private readonly SkiaShape _highlight;
+    private long _playedHighlightStamp;
+    private CancellationTokenSource _highlightCts;
+
+    #endregion
+
     public override ISkiaGestureListener ProcessGestures(SkiaGesturesParameters args, GestureEventProcessingInfo apply)
     {
         if (args.Type == TouchActionResult.Tapped)
@@ -71,16 +90,27 @@ public class ChatCell : SkiaDynamicDrawnCell
     {
         HorizontalOptions = LayoutOptions.Fill;
         Rotation = 180; //the scroll is rotated 180 (inverted chat), rotate the cell back upright
-        FastMeasurement = true; //use fast measurement path with less passes for children fills but faster
 
-        IsParentIndependent = true; //this was default in base normally
-
+        FastMeasurement = false; //can't use fast measurement default for cells cuz we use some height FILL children while having cell AUTO height
+        
         //we will be suing sell in context of MeasureVisible (background measure) so
         //we about ImageDoubleBuffered and GPU for background thread safe processing
-        UseCache = SkiaCacheType.ImageDoubleBuffered;
+        UseCache = SkiaCacheType.Image;//DoubleBuffered;//async raster off the render thread -> no cold-cell fling spike
 
         Children = new List<SkiaControl>
         {
+            //jump-highlight band: covers the whole cell behind the content, hidden when idle
+            new SkiaShape
+            {
+                ZIndex = -1,
+                IsVisible = false,
+                InputTransparent = true,
+                Type = ShapeType.Rectangle,
+                BackgroundColor = ChatTheme.AccentBright,
+                HorizontalOptions = LayoutOptions.Fill,
+                VerticalOptions = LayoutOptions.Fill,
+            }.Assign(out _highlight),
+
             new DiagStack
             {
                 Spacing = 0,
@@ -382,6 +412,59 @@ public class ChatCell : SkiaDynamicDrawnCell
             return;
 
         UpdateContent(msg);
+        MaybeHighlight(msg);
+    }
+
+    /// <summary>
+    /// Plays (or skips) the jump-highlight based on the message's HighlightStamp. Called on bind
+    /// (covers a freshly-created target cell after a rebase jump) and on live stamp change (covers
+    /// a target already resident when the quote is tapped). A per-cell consumed-stamp + freshness
+    /// guard stop a recycled cell from replaying a stale highlight.
+    /// </summary>
+    private void MaybeHighlight(ChatMessage msg)
+    {
+        var stamp = msg.HighlightStamp;
+        if (stamp == _playedHighlightStamp)
+            return; // already handled this request (or none) for the bound message
+
+        _playedHighlightStamp = stamp;
+
+        if (stamp == 0 || Environment.TickCount64 - stamp > HighlightFreshMs)
+        {
+            ResetHighlight(); // stale/none: recycle clean-up, never flash
+            return;
+        }
+
+        PlayHighlight();
+    }
+
+    private void ResetHighlight()
+    {
+        _highlightCts?.Cancel();
+        _highlight.IsVisible = false;
+    }
+
+    private async void PlayHighlight()
+    {
+        _highlightCts?.Cancel();
+        _highlightCts?.Dispose();
+        var cts = _highlightCts = new CancellationTokenSource();
+
+        try
+        {
+            _highlight.Opacity = HighlightPeakOpacity; // instant tint on draw, Telegram-style
+            _highlight.IsVisible = true;
+
+            await Task.Delay(HighlightHoldStillMs, cts.Token);
+            await _highlight.FadeToAsync(0, HighlightFadeMs, Easing.Linear, cts);
+
+            if (!cts.IsCancellationRequested)
+                _highlight.IsVisible = false;
+        }
+        catch (OperationCanceledException)
+        {
+            // recycled / re-triggered mid-flash: the new request owns the overlay
+        }
     }
 
 
@@ -419,10 +502,26 @@ public class ChatCell : SkiaDynamicDrawnCell
                 UpdateStatus(msg);
             }
         }
+        else if (e.PropertyName is nameof(ChatMessage.Text))
+        {
+            // Live text mutation (e.g. streaming "AI is thinking" mock): re-push only the label text
+            // so the cell remeasures/reflows on the fly without a full rebind.
+            if (Context is ChatMessage msg)
+            {
+                _label.Text = msg.Type == ChatMessageType.Link
+                    ? $"{msg.Text}\n<{msg.LinkUrl}>"
+                    : msg.Text;
+            }
+        }
         else if (e.PropertyName is nameof(ChatMessage.IsFirstDay))
         {
             SetContent(BindingContext);
             //if (Parent is SkiaLayout skia) skia.Invalidate(); // TEST: rely on framework OffsetOthers self-heal
+        }
+        else if (e.PropertyName is nameof(ChatMessage.HighlightStamp))
+        {
+            if (Context is ChatMessage msg)
+                MaybeHighlight(msg);
         }
 
         base.ContextPropertyChanged(sender, e);

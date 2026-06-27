@@ -53,14 +53,8 @@ public sealed partial class ChatPage : BindableObject, IChatCellActions
 
     public ChatPage()
     {
-        for (int i = 0; i < TotalItems; i++)
-            _all.Add(ChatMessage.CreateMock(i));
-
-        _windowEnd = _all.Count;
-        _windowStart = Math.Max(0, _windowEnd - LoadBatch);
-        _items.AddRange(ReversedRange(_windowStart, _windowEnd - _windowStart));
-
-        _api.ReplyReceived += (s, text) => ReceiveMessage(text); 
+        // Data source + async seed happen in InitializeList (after the scroll/host are built).
+        _api.ReplyReceived += (s, text) => ReceiveMessage(text);
         _api.Typing += (s, typing) => SetBotTyping(typing);  
     }
      

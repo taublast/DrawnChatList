@@ -45,6 +45,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AppoMobi.Specials", "..\App
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DrawnUiRepro", "..\DrawnUiReproIS\DrawnUiRepro.csproj", "{F201ACD6-AEE7-ED4D-DBFA-50B781BC9609}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tutorials", "..\DrawnUi\src\Maui\Samples\Tutorials\Tutorials.csproj", "{10AF30C4-69B5-5732-1921-7D793F7CBCFA}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VirtualizationHarnessDemo", "..\DrawnUi\src\Net\Samples\VirtualizationHarnessDemo\VirtualizationHarnessDemo.csproj", "{60682D46-4917-F17C-35C7-9202895DF907}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -105,6 +109,14 @@ Global
 		{F201ACD6-AEE7-ED4D-DBFA-50B781BC9609}.Debug|Any CPU.Deploy.0 = Debug|Any CPU
 		{F201ACD6-AEE7-ED4D-DBFA-50B781BC9609}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F201ACD6-AEE7-ED4D-DBFA-50B781BC9609}.Release|Any CPU.Build.0 = Release|Any CPU
+		{10AF30C4-69B5-5732-1921-7D793F7CBCFA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{10AF30C4-69B5-5732-1921-7D793F7CBCFA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{10AF30C4-69B5-5732-1921-7D793F7CBCFA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{10AF30C4-69B5-5732-1921-7D793F7CBCFA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{60682D46-4917-F17C-35C7-9202895DF907}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{60682D46-4917-F17C-35C7-9202895DF907}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{60682D46-4917-F17C-35C7-9202895DF907}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{60682D46-4917-F17C-35C7-9202895DF907}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -126,6 +138,8 @@ Global
 		{A13410A7-0354-E08E-7284-F989C5C89609} = {72681293-EFFB-42B8-9C52-D1381D71B28F}
 		{04F4F366-70B0-9E9D-81AD-469F664A1769} = {9E06E6F0-4214-4D7B-9D29-F26B0B44E84D}
 		{F201ACD6-AEE7-ED4D-DBFA-50B781BC9609} = {72681293-EFFB-42B8-9C52-D1381D71B28F}
+		{10AF30C4-69B5-5732-1921-7D793F7CBCFA} = {72681293-EFFB-42B8-9C52-D1381D71B28F}
+		{60682D46-4917-F17C-35C7-9202895DF907} = {72681293-EFFB-42B8-9C52-D1381D71B28F}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {329E3D0C-A3F7-4A3E-B61C-6B2D1BD7F708}
@@ -133,13 +147,14 @@ Global
 	GlobalSection(SharedMSBuildProjectFiles) = preSolution
 		src\Shared\DrawnChatList.Shared.projitems*{07eb9e24-e634-760a-3515-c6b93b39eacc}*SharedItemsImports = 5
 		src\Shared\DrawnChatList.Shared.projitems*{21b2d714-ecbd-64ba-b96e-717c047572a7}*SharedItemsImports = 5
-		..\DrawnUi\src\Shared\Shared.projitems*{51f7ec60-4642-3a6f-6c99-f6f62233c374}*SharedItemsImports = 5
+		..\DrawnUi\src\Shared\DrawnUi\Shared.projitems*{51f7ec60-4642-3a6f-6c99-f6f62233c374}*SharedItemsImports = 5
+		src\Shared\DrawnChatList.Shared.projitems*{60682d46-4917-f17c-35c7-9202895df907}*SharedItemsImports = 5
 		src\Shared\DrawnChatList.Shared.projitems*{60ef8dbf-e427-472c-9bb6-8d028e4b7900}*SharedItemsImports = 13
 		..\DrawnUi\src\Shared\Shared.projitems*{83974207-9636-48dd-bdb3-98edecbb1107}*SharedItemsImports = 13
-		..\DrawnUi\src\Shared\Shared.projitems*{93e119b1-4378-87df-2dd2-a818d1e6c2a2}*SharedItemsImports = 5
+		..\DrawnUi\src\Shared\DrawnUi\Shared.projitems*{93e119b1-4378-87df-2dd2-a818d1e6c2a2}*SharedItemsImports = 5
 		..\DrawnUi\src\Shared\Shared.projitems*{a600fd05-5de5-e382-db79-8e53ad2fed7e}*SharedItemsImports = 5
 		..\DrawnUi\src\SharedNet\SharedNet.projitems*{c4d8f2a1-7b3e-4f9c-a8d6-5e1b9f2c8d3a}*SharedItemsImports = 13
 		src\Shared\DrawnChatList.Shared.projitems*{d6714110-a310-b6e1-fc94-d37441470f9b}*SharedItemsImports = 5
-		..\DrawnUi\src\Shared\Shared.projitems*{ed99ddb0-602d-46f9-aeef-4ad047bfce8d}*SharedItemsImports = 5
+		..\DrawnUi\src\Shared\DrawnUi\Shared.projitems*{ed99ddb0-602d-46f9-aeef-4ad047bfce8d}*SharedItemsImports = 5
 	EndGlobalSection
 EndGlobal

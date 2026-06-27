@@ -1,29 +1,34 @@
- using DrawnUi.Controls;
- using DrawnUi.Draw;
- using DrawnUi.Views;
- using System.Diagnostics;
- using System.Windows.Input;
- using AppoMobi.Specials;
- using DrawnUi;
+using DrawnUi.Controls;
+using DrawnUi.Draw;
+using DrawnUi.Views;
+using System.Diagnostics;
+using System.Windows.Input;
+using AppoMobi.Specials;
+using DrawnUi;
 
- namespace DrawnChatList;
+namespace DrawnChatList;
 
- 
-public partial class ChatPage  
+public partial class ChatPage
 {
-    // Windowed source, INVERTED: _items[i] == _all[_windowEnd - 1 - i].
-    // The window covers _all[_windowStart .. _windowEnd), _items shows it newest-first.
-    private readonly ObservableRangeCollection<ChatMessage> _items = new();
-    private readonly List<ChatMessage> _all = new(); // stands in for a SQLite-paged source
-    private int _windowStart;
-    private int _windowEnd;
-
     private const int TotalItems = 322;
     private const int LoadBatch = 25;
 
     // Memory cap: trim BEFORE loading, opposite end (see DevPage for the full contract).
     private const bool LimitMemoryWindow = true;
-    private const int MaxItemsInMemory = 100;
+    private const int MaxItemsInMemory = 200;
+
+    // Windowed source, INVERTED (Items[i] == All[WindowEnd - 1 - i]). All window/paging/jump logic
+    // lives in the reusable WindowedSource<T>; the page only owns UI (cells, FABs, highlight, theme).
+    private readonly WindowedSource<ChatMessage> _window = new(LoadBatch, MaxItemsInMemory, LimitMemoryWindow);
+
+    // Simulated remote API (the message history lives here, not in memory locally).
+    private const int RemoteLatencyMs = 10;
+    private MockChatService _service;
+
+    // Thin passthroughs so the existing read-sites (and the platform debug probes) keep compiling.
+    private ObservableRangeCollection<ChatMessage> _items => _window.Items;
+    private int _windowStart => _window.WindowStart;
+    private int _windowEnd => _window.WindowEnd;
 
     private bool _scrollDownShown;
     private bool _wantScrollDown; //last computed condition, restored when the reply panel closes
@@ -44,12 +49,20 @@ public partial class ChatPage
     };
 
     Canvas Canvas;
-    public ChatMessagesStack ChatStack;
+    public AppMessagesStack ChatStack;
     public SkiaScroll MainScroll;
     SkiaEditor Editor;
     SkiaLayer FullscreenOverlay;
     SkiaImage FullscreenImage;
+    SkiaLayer DevPickerOverlay;
+    SkiaStack DevPickerSheet;
+
     SkiaShape BtnScrollToEnd;
+
+    // ONE LoadMore spinner (SkiaLottie), repositioned per operation: top = history/LoadOlder,
+    // bottom = newer/LoadNewer, center = long-jump window-replace. Driven by WindowedSource.LoadingChanged.
+    SkiaShape Spinner;
+    SkiaLottie SpinnerLoader;
 #if DEBUG
     SkiaShape BtnScrollToOldest; //debug helper: jump to the very first (oldest) message
     private bool _scrollToOldestShown;
@@ -130,8 +143,30 @@ public partial class ChatPage
                                         }.Assign(out StatusLabel),
                                     }
                                 }.WithColumn(1),
+
+                                // DEV TOOLS: opens the dev-options picker (mock pickers / debug actions)
+                                new SkiaLayer
+                                {
+                                    UseCache = SkiaCacheType.GPU,
+                                    WidthRequest = 40,
+                                    HorizontalOptions = LayoutOptions.Fill,
+                                    VerticalOptions = LayoutOptions.Fill,
+                                    Children =
+                                    {
+                                        new SkiaSvg
+                                        {
+                                            UseCache = SkiaCacheType.Operations,
+                                            SvgString = SvgTools,
+                                            TintColor = ChatTheme.IconMuted,
+                                            HeightRequest = 22,
+                                            LockRatio = 1,
+                                            HorizontalOptions = LayoutOptions.Center,
+                                            VerticalOptions = LayoutOptions.Center,
+                                        },
+                                    }
+                                }.OnTapped(me => ShowDevPicker()).WithColumn(2),
                             }
-                        }.WithColumnDefinitions("40,*"),
+                        }.WithColumnDefinitions("40,*,40"),
 
                         new SkiaLayer()
                         {
@@ -152,22 +187,22 @@ public partial class ChatPage
                                         TrackIndexPosition = RelativePositionType.Start,
 
                                         // bottom trigger = visually scrolling UP = load history
-                                        LoadMoreCommand = new Command(LoadOlder),
+                                        LoadMoreCommand = new Command(_window.LoadOlder),
                                         LoadMoreOffset = 800,
 
                                         // top trigger = visually scrolling DOWN = reload trimmed newer part
-                                        LoadMoreTopCommand = new Command(LoadNewer),
+                                        LoadMoreTopCommand = new Command(_window.LoadNewer),
                                         LoadMoreTopOffset = 800,
 
                                         HorizontalOptions = LayoutOptions.Fill,
                                         VerticalOptions = LayoutOptions.Fill,
 
-                                        Content = new ChatMessagesStack
+                                        Content = new AppMessagesStack
                                         {
                                             BackgroundMeasurementBatchSize = LoadBatch,
-                                            VirtualisationInflatedRatio = 1.0,
-                                            ReserveTemplates = LoadBatch*2, 
-                                            ItemTemplatePoolSize=MaxItemsInMemory+LoadBatch+5,
+                                            VirtualisationInflatedRatio = 1.5,
+                                            ReserveTemplates = LoadBatch * 2,
+                                            ItemTemplatePoolSize = MaxItemsInMemory + LoadBatch + 5,
                                             ItemTemplateType = typeof(ChatCell),
                                             ItemsSource = _items,
                                             RecyclingTemplate = RecyclingTemplate.Disabled,
@@ -175,7 +210,6 @@ public partial class ChatPage
                                             Spacing = 4,
                                             Padding = new Thickness(0, 8),
                                         }.Assign(out ChatStack),
-
                                     }.Assign(out MainScroll)
                                     .Observe(this,
                                         (me, s) =>
@@ -323,24 +357,30 @@ public partial class ChatPage
                                 }.OnTapped(me => SendFile()).WithColumn(1),
 
                                 new SkiaEditor
-                                {
-                                    UseCache = SkiaCacheType.Operations,
-                                    HorizontalOptions = LayoutOptions.Fill,
-                                    VerticalOptions = LayoutOptions.Center,
-                                    CornerRadius = 18,
-                                    BackgroundColor = ChatTheme.InputBg,
-                                    Padding = new Thickness(12, 10),
-                                    FontSize = 15,
-                                    TextColor = Colors.White,
-                                    CursorColor = Colors.Cyan,
-                                    PlaceholderText = "Write a message…",
-                                    PlaceholderColor = ChatTheme.IconMuted,
-                                    MaxLines = 3,
-                                    AutoHeight =
-                                        true, //will auto-resize when we type more lines, up to MaxLines
-                                    ReturnType = ReturnType.Send,
-                                    CommandOnSubmit = new Command(SendMessage),
-                                }.Assign(out Editor).WithColumn(2),
+                                    {
+                                        UseCache = SkiaCacheType.Operations,
+                                        HorizontalOptions = LayoutOptions.Fill,
+                                        VerticalOptions = LayoutOptions.Center,
+                                        CornerRadius = 18,
+                                        BackgroundColor = ChatTheme.InputBg,
+                                        Padding = new Thickness(12, 10),
+                                        FontSize = 15,
+                                        TextColor = Colors.White,
+                                        CursorColor = Colors.Cyan,
+                                        PlaceholderText = "Write a message…",
+                                        PlaceholderColor = ChatTheme.IconMuted,
+                                        MaxLines = 3,
+                                        AutoHeight =
+                                            true, //will auto-resize when we type more lines, up to MaxLines
+                                        ReturnType = ReturnType.Send,
+                                        CommandOnSubmit = new Command(SendMessage),
+                                    }
+                                    .OnFocusChanged((me, focused) =>
+                                    {
+                                        ScrollToNewest(false);
+                                    })
+                                    .Assign(out Editor)
+                                    .WithColumn(2),
 
                                 // SEND: telegram-style round button with a paper plane
                                 new SkiaShape
@@ -374,6 +414,7 @@ public partial class ChatPage
                         // KEYBOARD SPACER (mobile): pushes the typing bar above the soft keyboard
                         new SkiaControl
                         {
+                            //BackgroundColor = Colors.Red,
                             UseCache = SkiaCacheType.Operations,
                             HeightRequest = 0,
                             HorizontalOptions = LayoutOptions.Fill,
@@ -390,7 +431,6 @@ public partial class ChatPage
                 // DEBUG OVERLAY: shows resident items window for the memory-cap demo
                 new SkiaLabel
                 {
-                    UseCache = SkiaCacheType.Operations,
                     Margin = new(16, 0, 16, 100),
                     Padding = 2,
                     BackgroundColor = Color.Parse("#AA000000"),
@@ -401,10 +441,7 @@ public partial class ChatPage
                     Rotation = -20,
                     ZIndex = 100,
                 }.ObserveProperty(() => ChatStack, nameof(SkiaLayout.DebugString),
-                    me =>
-                    {
-                        me.Text = ChatStack.DebugString;
-                    }),
+                    me => { me.Text = ChatStack.DebugString; }),
 
 #if DEBUG
                 new SkiaLabelFps()
@@ -448,6 +485,34 @@ public partial class ChatPage
                     }
                 }.Assign(out BtnScrollToEnd).OnTapped(me => ScrollToNewest(true)),
 
+                // LOADMORE SPINNER (single SkiaLottie, SkiaActivityIndicator-style). One instance, moved by
+                // OnWindowLoadingChanged: top = history, bottom = newer, center = long jump.
+                new SkiaShape
+                {
+                    Type = ShapeType.Circle,
+                    IsVisible = false,
+                    WidthRequest = 40,
+                    LockRatio = 1,
+                    BackgroundColor = Color.Parse("#F217212B"),
+                    Padding = 6,
+                    HorizontalOptions = LayoutOptions.Center,
+                    VerticalOptions = LayoutOptions.Center,
+                    ZIndex = 90,
+                    Children =
+                    {
+                        new SkiaLottie
+                        {
+                            AutoPlay = false,
+                            Repeat = -1,
+                            Source = "Lottie/iosloader.json",
+                            ColorTint = ChatTheme.AccentBright,
+                            LockRatio = 1,
+                            HorizontalOptions = LayoutOptions.Fill,
+                            VerticalOptions = LayoutOptions.Fill,
+                        }.Assign(out SpinnerLoader),
+                    }
+                }.Assign(out Spinner),
+
 #if DEBUG
                 // SCROLL TO OLDEST (debug only): same spot as the scroll-to-latest FAB, shown while
                 // at the newest message. Arrow points UP (chevron rotated 180).
@@ -460,7 +525,7 @@ public partial class ChatPage
                     WidthRequest = 46,
                     LockRatio = 1,
                     BackgroundColor = Color.Parse("#F217212B"),
-                    HorizontalOptions = LayoutOptions.End,
+                    HorizontalOptions = LayoutOptions.Start,
                     VerticalOptions = LayoutOptions.End,
                     Margin = new Thickness(0, 0, 10, 120),
                     ZIndex = 90,
@@ -527,13 +592,55 @@ public partial class ChatPage
                         },
                     }
                 }.OnTapped(me => HideImageFullscreen()).Assign(out FullscreenOverlay),
+
+                // DEV-OPTIONS PICKER: bottom-sheet style overlay, tap backdrop to close.
+                // Rows are built from BuildDevOptions() so new dev actions are one list entry.
+                new SkiaLayer
+                {
+                    IsVisible = false,
+                    ZIndex = 210,
+                    BlockGesturesBelow = true,
+                    BackgroundColor = Color.Parse("#99000000"),
+                    HorizontalOptions = LayoutOptions.Fill,
+                    VerticalOptions = LayoutOptions.Fill,
+                    Children =
+                    {
+                        new SkiaShape
+                        {
+                            Type = ShapeType.Rectangle,
+                            CornerRadius = 16,
+                            BackgroundColor = ChatTheme.BarBg,
+                            HorizontalOptions = LayoutOptions.Fill,
+                            VerticalOptions = LayoutOptions.End,
+                            Margin = new Thickness(8, 0, 8, 8),
+                            Padding = new Thickness(8, 12),
+                            Children =
+                            {
+                                new SkiaStack
+                                {
+                                    Spacing = 4,
+                                    HorizontalOptions = LayoutOptions.Fill,
+                                    Children =
+                                    {
+                                        new SkiaLabel
+                                        {
+                                            Text = "Dev Tools",
+                                            FontSize = 13,
+                                            TextColor = ChatTheme.IconMuted,
+                                            Margin = new Thickness(12, 4, 0, 8),
+                                        },
+                                    }
+                                }.Assign(out DevPickerSheet),
+                            }
+                        }.OnTapped(me => { /* swallow taps on the sheet */ }),
+                    }
+                }.OnTapped(me => HideDevPicker()).Assign(out DevPickerOverlay),
             }
         };
     }
 
     public Canvas CreateCanvas()
     {
-        
         return new Canvas
         {
             Tag = "ChatCanvas",
@@ -551,10 +658,57 @@ public partial class ChatPage
         // Cells reach the viewer via Parent.BindingContext (original app pattern).
         ChatStack.BindingContext = this;
 
+        // Wire the windowed source to the freshly built scroll/stack (re-attached on each HotReload Build).
+        // Built-in lib adapter — uses the layout's base SuppressLoadMore + MeasurementApplied primitives.
+        _window.SetHost(new SkiaScrollWindowHost(MainScroll, ChatStack));
+        _window.OnSliceLoaded = PreloadSlice;
+        _window.LoadingChanged = OnWindowLoadingChanged;
+
+        // Remote data source: the windowed source pages from here (with latency) — no local _all.
+        _service = new MockChatService(TotalItems, RemoteLatencyMs);
+        _window.SetDataSource(_service);
+
         // ViewportOffsetY does not notify, the Scrolled event is the offset signal.
         // No unsubscribe needed: the canvas with this scroll is disposed on every Build.
         MainScroll.Scrolled += OnChatScrolled;
         _scrollDownShown = false;
+
+        // Async seed of the present window (shows nothing until the first slice arrives).
+        _ = _window.InitializeAsync();
+    }
+
+    // One spinner, repositioned per operation: history (LoadOlder) = top, newer (LoadNewer) = bottom,
+    // long jump (window-replace) = center. Raised on the UI thread by WindowedSource.
+    private void OnWindowLoadingChanged()
+    {
+        if (Spinner == null)
+            return;
+
+        bool on = _window.IsLoadingOlder || _window.IsLoadingNewer || _window.IsLoadingJump;
+        if (on)
+        {
+            if (_window.IsLoadingJump)
+            {
+                Spinner.VerticalOptions = LayoutOptions.Center;
+                Spinner.Margin = new Thickness(0);
+            }
+            else if (_window.IsLoadingOlder)
+            {
+                Spinner.VerticalOptions = LayoutOptions.Start;
+                Spinner.Margin = new Thickness(0, 64, 0, 0); // clear the navbar
+            }
+            else // newer
+            {
+                Spinner.VerticalOptions = LayoutOptions.End;
+                Spinner.Margin = new Thickness(0, 0, 0, 64); // clear the send bar
+            }
+        }
+
+        Spinner.IsVisible = on;
+        if (on)
+            SpinnerLoader?.Start();
+        else
+            SpinnerLoader?.Stop();
     }
 
     private async void HideImageFullscreen()
@@ -595,6 +749,74 @@ public partial class ChatPage
         _ = FullscreenOverlay.ScaleToAsync(1, 1, 200);
     }
 
+    // Dev-options picker entries. Add a new (label, action) here to expose a new dev action in the
+    // tool picker — Send Image / Send File reuse the existing chat-bar handlers.
+    private (string Label, Action Action)[] BuildDevOptions() => new (string, Action)[]
+    {
+        ("Send image", SendImage),
+        ("Send file", SendFile),
+        ("Mock AI answer", StartMockAiAnswer),
+        ("Stop AI mock", StopMockAiAnswer),
+    };
+
+    private SkiaControl BuildDevOptionRow(string label, Action action)
+    {
+        return new SkiaShape
+        {
+            UseCache = SkiaCacheType.Operations,
+            Type = ShapeType.Rectangle,
+            CornerRadius = 10,
+            BackgroundColor = ChatTheme.InputBg,
+            HorizontalOptions = LayoutOptions.Fill,
+            Padding = new Thickness(14, 12),
+            Children =
+            {
+                new SkiaLabel
+                {
+                    Text = label,
+                    FontSize = 15,
+                    TextColor = Colors.White,
+                    VerticalOptions = LayoutOptions.Center,
+                },
+            }
+        }.OnTapped(me =>
+        {
+            HideDevPicker();
+            action();
+        });
+    }
+
+    private bool pickerInitialized;
+
+    private void ShowDevPicker()
+    {
+        if (DevPickerOverlay == null || DevPickerSheet == null)
+            return;
+
+        // Rebuild rows each open (cheap) so the option list stays the single source of truth.
+        // Keep the first child (title), drop the rest.
+        if (!pickerInitialized)
+        {
+            pickerInitialized = true;
+
+            foreach (var (label, action) in BuildDevOptions())
+                DevPickerSheet.AddSubView(BuildDevOptionRow(label, action));
+        }
+
+        DevPickerOverlay.Opacity = 0;
+        DevPickerOverlay.IsVisible = true;
+        _ = DevPickerOverlay.FadeToAsync(1, 160);
+    }
+
+    private async void HideDevPicker()
+    {
+        if (DevPickerOverlay == null || !DevPickerOverlay.IsVisible)
+            return;
+
+        await DevPickerOverlay.FadeToAsync(0, 140);
+        DevPickerOverlay.IsVisible = false;
+    }
+
     private void SendMessage()
     {
         var text = Editor.Text?.Trim();
@@ -617,17 +839,19 @@ public partial class ChatPage
 
         var msg = CreateTailMessage(string.IsNullOrEmpty(caption) ? "Photo" : caption,
             outgoing: true, ChatMessageType.Image);
-        msg.ImageUrl = $"https://picsum.photos/seed/sent{_all.Count}/400/240";
+        msg.ImageUrl = $"https://picsum.photos/seed/sent{_window.Count}/400/240";
         msg.PreviewBase64 = ChatMessage.MockImagePreview;
 
         SendOutgoing(msg);
     }
 
 
-
     private void OnChatScrolled(object sender, ScaledPoint e)
     {
         var away = Math.Abs(e.Units.Y);
+
+        // Jump LoadMore-release is now handled inside WindowedSource: SuppressLoadMore covers only the fetch,
+        // then the base ordered-scroll gate blocks LoadMore until the scroll self-completes. No latch here.
 
         // Jump-to-oldest in flight: release the LoadMore block once the ordered scroll has committed
         // AND the oldest item is actually visible (= we arrived). Parked at the oldest, LoadMore is
@@ -646,20 +870,49 @@ public partial class ChatPage
         // until we arrive; the timeout covers an animation interrupted by the user.
         if (Environment.TickCount64 < _suppressFabUntilMs)
         {
-            if (away < 12)
-                _suppressFabUntilMs = 0; //arrived
-            ShowScrollDownButton(false);
-            return;
+            // Arrival can be at EITHER end: newest (offset ~0) or oldest (windowStart 0 + oldest visible).
+            // On arrival, clear the suppress and FALL THROUGH to the normal FAB evaluation on this same
+            // frame — otherwise, parked at the oldest, no further Scrolled event fires and the correct
+            // buttons (scroll-to-newest) would stay hidden until the user scrolls manually.
+            bool arrived = away < 12
+                           || (_windowStart == 0 && ChatStack.LastVisibleIndex >= _items.Count - 1);
+            if (!arrived)
+            {
+                ShowScrollDownButton(false);
+#if DEBUG
+                ShowScrollToOldestButton(false);
+#endif
+                return;
+            }
+
+            _suppressFabUntilMs = 0;
         }
 
+        EvaluateFabs(away);
+    }
+
+    /// <summary>
+    /// Computes both scroll-to-newest / scroll-to-oldest FAB visibility from the current distance to the
+    /// newest end (<paramref name="away"/> = |offset|). Called from OnChatScrolled AND directly after a
+    /// programmatic jump that snaps without raising a Scrolled event (e.g. the instant return-to-newest):
+    /// relying on the next Scrolled event would leave the FABs stale until the user scrolls manually.
+    /// </summary>
+    private void EvaluateFabs(double away)
+    {
         // newest message lives at offset 0 (top of the inverted scroll):
         // 100+ pts away into history -> offer the way back
         _wantScrollDown = away > 100;
         ShowScrollDownButton(_wantScrollDown);
 
 #if DEBUG
-        // mirror: at the newest message -> offer the jump to the oldest
-        ShowScrollToOldestButton(away < 12 && _windowEnd == _all.Count);
+        // Same appearing logic as scroll-to-newest, but for the OTHER end: scroll-to-oldest appears
+        // when we are 100+ pts away from the oldest message (more history to traverse) and hides once
+        // the oldest is reached. Older history still below the window (_windowStart != 0) = away by
+        // definition; once the oldest batch is loaded, measure the gap to the far (oldest) end.
+        bool atOldest = _windowStart == 0
+                        && (Math.Max(0, MainScroll.ContentSize.Units.Height - MainScroll.Viewport.Units.Height) -
+                            away) <= 100;
+        ShowScrollToOldestButton(!atOldest);
 #endif
     }
 
@@ -699,17 +952,17 @@ public partial class ChatPage
             CancelReply();
         }
 
-        if (!InsertNewest(msg))
-        {
-            // Deep in history with the newest end trimmed: rebase the window back to the present.
-            _windowEnd = _all.Count;
-            _windowStart = Math.Max(0, _windowEnd - LoadBatch);
-            _items.ReplaceRangeReset(ReversedRange(_windowStart, _windowEnd - _windowStart));
-            // Reset scrolls to content start = newest, nothing more to do.
-        }
+        _service.Append(msg); // the "server" now has it (future range fetches include it)
 
-        // Sending always returns the user to their message (original app behavior).
-        ScrollToNewest(true);
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            // Head-insert when at the present; when detached, ScrollToNewest below rebases to the present
+            // window (which now includes this message) and snaps to it.
+            _window.InsertNewest(msg);
+
+            // Sending always returns the user to their message (original app behavior).
+            ScrollToNewest(true);
+        });
 
         _api.Send(msg); // mock backend advances Sent -> Delivered -> Read, then replies
     }
@@ -720,13 +973,11 @@ public partial class ChatPage
     /// </summary>
     private void SendFile()
     {
-        var msg = CreateTailMessage(MockFiles[_all.Count % MockFiles.Length],
+        var msg = CreateTailMessage(MockFiles[_window.Count % MockFiles.Length],
             outgoing: true, ChatMessageType.File);
 
         SendOutgoing(msg);
     }
-
-
 
 
     private void ReceiveMessage(string text)
@@ -735,27 +986,97 @@ public partial class ChatPage
         // don't yank them out of reading history (original app behavior).
         bool atNewest = ChatStack.FirstVisibleIndex <= 1;
 
-        if (InsertNewest(CreateTailMessage(text, outgoing: false)) && atNewest)
+        var msg = CreateTailMessage(text, outgoing: false);
+        _service.Append(msg);
+
+        MainThread.BeginInvokeOnMainThread(() =>
         {
+            if (_window.InsertNewest(msg) && atNewest)
+            {
+                ScrollToNewest(true);
+            }
+        });
+    }
+
+    // MOCK STREAMING AI: one incoming message whose Text grows word-by-word for ~5s, to stress-test
+    // how a cell reacts to a non-stop changing Text (remeasure/reflow). ChatCell.ContextPropertyChanged
+    // reacts to nameof(ChatMessage.Text) and re-pushes only the label.
+    private CancellationTokenSource _aiMockCts;
+
+    private static readonly string[] AiMockWords =
+    {
+        "Let", "me", "think", "about", "this", "for", "a", "moment", "—", "analyzing",
+        "the", "context", "and", "weighing", "a", "few", "possible", "approaches", "before",
+        "committing", "to", "an", "answer", "that", "actually", "makes", "sense", "here.",
+        "Considering", "the", "tradeoffs,", "the", "constraints,", "and", "what", "you",
+        "really", "asked", "for", "in", "the", "first", "place,", "I", "would", "say",
+    };
+
+    private void StartMockAiAnswer()
+    {
+        StopMockAiAnswer(); // only one stream at a time
+
+        var cts = _aiMockCts = new CancellationTokenSource();
+
+        bool atNewest = ChatStack.FirstVisibleIndex <= 1;
+        var msg = CreateTailMessage("…", outgoing: false);
+        _service.Append(msg);
+        if (_window.InsertNewest(msg) && atNewest)
             ScrollToNewest(true);
+
+        SetBotTyping(true);
+        _ = StreamMockAiAnswer(msg, cts.Token);
+    }
+
+    private async Task StreamMockAiAnswer(ChatMessage msg, CancellationToken token)
+    {
+        var sb = new System.Text.StringBuilder();
+        var deadline = Environment.TickCount64 + 5000; // grow for ~5 seconds
+        int i = 0;
+
+        try
+        {
+            while (!token.IsCancellationRequested && Environment.TickCount64 < deadline)
+            {
+                await Task.Delay(180, token);
+
+                var word = AiMockWords[i++ % AiMockWords.Length];
+                sb.Append(sb.Length == 0 ? word : " " + word);
+                var text = sb.ToString();
+
+                // Text setter raises PropertyChanged -> ChatCell re-pushes the label live.
+                MainThread.BeginInvokeOnMainThread(() => msg.Text = text);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // stopped by the user via "Stop AI mock"
+        }
+        finally
+        {
+            MainThread.BeginInvokeOnMainThread(() => SetBotTyping(false));
         }
     }
 
-    /// <summary>
-    /// _all[from + count - 1] down to _all[from]: a window slice in the inverted (newest-first) order.
-    /// </summary>
-    private List<ChatMessage> ReversedRange(int from, int count)
+    private void StopMockAiAnswer()
     {
-        var batch = new List<ChatMessage>(count);
-        for (int i = from + count - 1; i >= from; i--)
-            batch.Add(_all[i]);
-        return batch;
+        _aiMockCts?.Cancel();
+        _aiMockCts?.Dispose();
+        _aiMockCts = null;
     }
 
-   
     private CancellationTokenSource _preloadCancellation;
 
-    private async Task PreloadImages(List<ChatMessage> items, CancellationToken cancellationToken)
+    /// <summary>Hooked into WindowedSource.OnSliceLoaded: kick off preview-image preloading for each
+    /// freshly paged-in slice (cancels the previous run).</summary>
+    private void PreloadSlice(IReadOnlyList<ChatMessage> slice)
+    {
+        _preloadCancellation?.Cancel();
+        _preloadCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        _ = PreloadImages(slice, _preloadCancellation.Token);
+    }
+
+    private async Task PreloadImages(IReadOnlyList<ChatMessage> items, CancellationToken cancellationToken)
     {
         try
         {
@@ -783,130 +1104,18 @@ public partial class ChatPage
             Debug.WriteLine($"Error preloading images: {ex.Message}");
         }
     }
-    /// <summary>
-    /// Back towards the present: the scroll's top LoadMore = visually scrolling DOWN, needed only
-    /// after the memory cap trimmed the newest end away while reading history. Newer messages get
-    /// head-inserted (framework keeps the viewport pinned). Memory cap trims the oldest end first.
-    /// </summary>
-    private void LoadNewer()
-    {
-        if (_windowEnd >= _all.Count)
-            return;
-
-        MainThread.BeginInvokeOnMainThread(() =>
-        {
-
-            int n = Math.Min(LoadBatch, _all.Count - _windowEnd);
-
-            Debug.WriteLine($"[CHAT] LoadNewer {_windowEnd}..{_windowEnd + n - 1}");
-
-            var loadedData = ReversedRange(_windowEnd, n);
-
-            //todo start preloading preview images in background
-            // Cancel previous preloading
-            _preloadCancellation?.Cancel();
-            _preloadCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            _ = PreloadImages(loadedData, _preloadCancellation.Token);
-
-            // Newest direction: keep the window at the cap ATOMICALLY — trim the oldest tail BEFORE
-            // inserting the new head batch, in the same UI turn. Avoids the grow-to-(cap+batch)-then-
-            // deferred-shrink (the 125->100 flash) and lets the head insert translate fewer resident
-            // cells. No post-commit deferred trim on this path.
-            ChatStack.OnAdded = null;
-
-            if (LimitMemoryWindow)
-            {
-                int over = _items.Count + n - MaxItemsInMemory;
-                if (over > 0)
-                {
-                    over = Math.Min(over, _items.Count); // never remove more than present
-                    _items.RemoveRange(_items.Count - over, over); // list tail = oldest
-                    _windowStart += over;
-                }
-            }
-
-            _items.InsertRange(0, loadedData); // insert AFTER the trim, one notification for the whole batch
-            _windowEnd += n;
-        });
-
-    }
-
-    void LimitSourceForNewer()
-    {
-        if (LimitMemoryWindow)
-        {
-            MainThread.BeginInvokeOnMainThread(() =>
-            {
-                int over = _items.Count - MaxItemsInMemory;
-                if (over > 0)
-                {
-                    Debug.WriteLine($"[CHAT] TrimOldest {_windowStart}..{_windowStart + over - 1}");
-                    _items.RemoveRange(_items.Count - over, over); // list tail = oldest
-                    _windowStart += over;
-                }
-            });
-            ChatStack.OnAdded = null;
-        }
-    }
-
-    void LimitSourceForOlder()
-    {
-        if (LimitMemoryWindow)
-        {
-            MainThread.BeginInvokeOnMainThread(() =>
-            {
-                int over = _items.Count - MaxItemsInMemory;
-                if (over > 0)
-                {
-                    Debug.WriteLine($"[CHAT] TrimNewest {_windowEnd - over}..{_windowEnd - 1}");
-                    _items.RemoveRange(0, over); // list head = newest
-                    _windowEnd -= over;
-                }
-            });
-            ChatStack.OnAdded = null;
-        }
-    }
-
-    /// <summary>
-    /// History: the scroll's plain bottom LoadMore = visually scrolling UP in the inverted chat.
-    /// Older messages get APPENDED at the list end. Memory cap trims the newest end (list head) first.
-    /// </summary>
-    private void LoadOlder()
-    {
-        if (_windowStart <= 0)
-            return;
-
-        MainThread.BeginInvokeOnMainThread(() =>
-        {
-
-            int n = Math.Min(LoadBatch, _windowStart);
-
-            _windowStart -= n;
-            Debug.WriteLine($"[CHAT] LoadOlder {_windowStart}..{_windowStart + n - 1}");
-            var loadedData = ReversedRange(_windowStart, n);
-
-            //todo start preloading preview images in background
-            _preloadCancellation?.Cancel();
-            _preloadCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            _ = PreloadImages(loadedData, _preloadCancellation.Token);
-
-            ChatStack.OnAdded = LimitSourceForOlder;
-
-           _items.AddRange(loadedData); // one notification for the whole batch
-        });
-    }
 
     /// <summary>
     /// Builds a new tail message with correct day/group flags relative to the current last one.
     /// </summary>
     private ChatMessage CreateTailMessage(string text, bool outgoing, ChatMessageType type = ChatMessageType.Text)
     {
-        var prev = _all[^1];
+        var prev = _service.At(_window.Count - 1);
         bool isFirstDay = prev.DayDesc != "Today";
 
         return new ChatMessage
         {
-            Index = _all.Count,
+            Index = _window.Count,
             Outgoing = outgoing,
             Type = type,
             Text = text,
@@ -918,48 +1127,73 @@ public partial class ChatPage
         };
     }
 
-    /// <summary>
-    /// Adds a message at the dataset tail (the logical end of _all) and INSERTS it at index 0
-    /// of the inverted list — the new message shows at the visual bottom instantly.
-    /// Returns false when the resident window is detached from the present (user deep in history
-    /// and the newest end was trimmed) — the message then lives only in _all until they return.
-    /// </summary>
-    private bool InsertNewest(ChatMessage msg)
-    {
-        bool windowAtPresent = _windowEnd == _all.Count;
-        _all.Add(msg);
-
-        if (!windowAtPresent)
-            return false;
-
-        // Head insert (newest) -> cut the opposite end (oldest tail) AFTER the insert is measured/applied.
-        if (LimitMemoryWindow)
-            ChatStack.OnAdded = LimitSourceForNewer;
-
-        _windowEnd++;
-        _items.Insert(0, msg);
-        return true;
-    }
-
     private void ScrollToNewest(bool animate)
     {
-        _wantScrollDown = false;
-        _suppressFabUntilMs = Environment.TickCount64 + 1200;
-        ShowScrollDownButton(false);
+        //ScrollToIndex(0, RelativePositionType.Start, true);
+        //return;
 
-        if (_windowEnd != _all.Count)
+        //we might change observablecollection so use ui thread
+        MainThread.BeginInvokeOnMainThread(() =>
         {
-            // Window detached from the present (after a quote-jump into trimmed history):
-            // rebase back; Reset scrolls to content start = newest.
-            _windowEnd = _all.Count;
-            _windowStart = Math.Max(0, _windowEnd - LoadBatch);
-            _items.ReplaceRangeReset(ReversedRange(_windowStart, _windowEnd - _windowStart));
-            //return; //Reset scrolls to content start = newest; FAB already hidden above
-        }
+            _wantScrollDown = false;
+            _suppressFabUntilMs = Environment.TickCount64 + 1200;
+            ShowScrollDownButton(false);
 
-        // top of the inverted scroll = index 0 = newest = visual bottom
-        MainScroll.ScrollToIndex(0, animate, RelativePositionType.Start, true);
+            bool wasDetached = !_window.AtPresent;
+
+            // Atomic nav in the windowed source: at-present = plain scroll to newest; detached = fetch the
+            // present window (centered jump spinner shows), replace, snap to content start. No blank flash.
+            _ = _window.ScrollToNewest(animate);
+
+            if (wasDetached)
+            {
+                // The window was rebased to the present: surface the FABs now (the jump suppressed them).
+                _suppressFabUntilMs = 0;
+                EvaluateFabs(0);
+            }
+        });
     }
+
+
+    /// <summary>
+    /// Universal jump to any GLOBAL message index with an alignment. Resident target = plain scroll;
+    /// out-of-window target = the windowed source rebases a slice CENTERED on it (so Center has room
+    /// and the user can keep scrolling both ways), then ordered-scrolls there. LoadMore is released
+    /// once the scroll lands (see <see cref="_window"/>.OnScrolled in OnChatScrolled).
+    /// </summary>
+    public void ScrollToIndex(int globalIndex, RelativePositionType align, bool animate)
+    {
+        // _items may change collection-shape -> on the UI thread.
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            _ = _window.ScrollToIndex(globalIndex, align, animate);
+
+            // Centered jump may detach from the present: offer the way back (offset alone is ~0 here,
+            // so it wouldn't trigger). If the reply panel is open the button stays suppressed.
+            if (!_window.AtPresent)
+            {
+                _wantScrollDown = true;
+                ShowScrollDownButton(true);
+            }
+        });
+    }
+
+    /// <summary>
+    /// Jump to a quoted message and flash it (Telegram-style). Thin wrapper over the universal
+    /// <see cref="ScrollToIndex(int, RelativePositionType, bool)"/>.
+    /// </summary>
+    public void ScrollToMessage(ChatMessage msg)
+    {
+        // Flag the REAL backing instance (msg may be a quote clone, but cells bind _all[Index]).
+        // Whichever cell holds/binds it flashes — works for both in-window (live notify) and
+        // rebase (read fresh at bind time).
+        var backing = _service?.At(msg.Index);
+        if (backing != null)
+            backing.HighlightStamp = Environment.TickCount64;
+
+        ScrollToIndex(msg.Index, RelativePositionType.Center, true);
+    }
+
 
 #if DEBUG
     /// <summary>
@@ -968,21 +1202,15 @@ public partial class ChatPage
     /// </summary>
     private void ScrollToOldest(bool animate)
     {
-        _suppressFabUntilMs = Environment.TickCount64 + 1200;
-
-        // Block auto-LoadMore for the whole jump: while the ordered scroll settles (and its post-commit
-        // animation runs) a LoadNewer/LoadOlder would head-insert/append into _items and the pending
-        // ScrollToIndex target would drift. Cleared in OnChatScrolled once the oldest is on screen.
-        ChatStack.SuppressLoadMore = true;
-
-        if (_windowStart != 0)
+        //we might change observablecollection so use ui thread
+        MainThread.BeginInvokeOnMainThread(() =>
         {
-            _windowStart = 0;
-            _windowEnd = Math.Min(LoadBatch, _all.Count);
-            _items.ReplaceRangeReset(ReversedRange(_windowStart, _windowEnd - _windowStart));
-        }
+            _suppressFabUntilMs = Environment.TickCount64 + 1200;
 
-        MainScroll.ScrollToIndex(_items.Count - 1, animate, RelativePositionType.Start, true);
+            // Atomic nav: fetch the head window (centered jump spinner shows), replace, ordered-scroll to the
+            // visual top. SuppressLoadMore is set inside and released in OnChatScrolled via _window.OnScrolled.
+            _ = _window.ScrollToOldest(animate);
+        });
     }
 
     private async void ShowScrollToOldestButton(bool show)
@@ -1007,7 +1235,9 @@ public partial class ChatPage
                 BtnScrollToOldest.IsVisible = false;
         }
     }
+
 #endif
+
 
     /// <summary>
     /// Long-press on a bubble: quote it in the typing bar.
@@ -1044,33 +1274,9 @@ public partial class ChatPage
         }
 
         // restore the scroll-down button if the user is still away from the newest messages
-        ShowScrollDownButton(_wantScrollDown || _windowEnd != _all.Count);
+        ShowScrollDownButton(_wantScrollDown || !_window.AtPresent);
     }
 
-    /// <summary>
-    /// Jump to a quoted message. Inside the resident window: just scroll. Outside (trimmed away):
-    /// rebase the window so the target is the newest resident item — Reset shows it instantly at
-    /// the visual bottom, backward loads then fill older context, LoadNewer fills back to present.
-    /// </summary>
-    public void ScrollToMessage(ChatMessage msg)
-    {
-        int local = _windowEnd - 1 - msg.Index;
-        if (local >= 0 && local < _items.Count)
-        {
-            MainScroll.ScrollToIndex(local, true, RelativePositionType.Start, true);
-            return;
-        }
-
-        _windowEnd = msg.Index + 1;
-        _windowStart = Math.Max(0, _windowEnd - LoadBatch);
-        Debug.WriteLine($"[CHAT] quote-jump to {msg.Index}, window -> [{_windowStart}..{_windowEnd})");
-        _items.ReplaceRangeReset(ReversedRange(_windowStart, _windowEnd - _windowStart));
-
-        // We are now deep in history: offer the way back (offset alone is 0 here, won't trigger it).
-        // If the reply panel is open the button stays suppressed and reappears when it closes.
-        _wantScrollDown = true;
-        ShowScrollDownButton(true);
-    }
 
     private void SetBotTyping(bool typing)
     {
@@ -1080,7 +1286,4 @@ public partial class ChatPage
         StatusLabel.Text = typing ? "Banana is typing…" : "online";
         StatusLabel.TextColor = typing ? ChatTheme.AccentBright : ChatTheme.IconMuted;
     }
-
-
-
 }

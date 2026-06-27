@@ -16,7 +16,18 @@ public sealed class ChatMessage : BindableObject
     public int Index { get; set; }
     public bool Outgoing { get; set; }
     public ChatMessageType Type { get; set; }
-    public string Text { get; set; } = string.Empty;
+
+    public string Text
+    {
+        get;
+        set
+        {
+            if (value == field) return;
+            field = value;
+            OnPropertyChanged();
+        }
+    } = string.Empty;
+
     public string Time { get; set; } = string.Empty;
     public string ImageUrl { get; set; } = string.Empty;
     public string LinkUrl { get; set; } = string.Empty;
@@ -55,6 +66,23 @@ public sealed class ChatMessage : BindableObject
     }
 
     public string DayDesc { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Set to Environment.TickCount64 when a jump (quote-tap / scroll-to-message) lands on this
+    /// message: the bound cell flashes a Telegram-style highlight. A stamp (not a bool) so the
+    /// same message re-flashes on a repeated tap and a freshly-created cell can decide at bind
+    /// time whether the request is still fresh enough to play.
+    /// </summary>
+    public long HighlightStamp
+    {
+        get;
+        set
+        {
+            if (value == field) return;
+            field = value;
+            OnPropertyChanged();
+        }
+    }
 
     // Delivery statuses (outgoing only). Notify so the bound cell can update
     // checkmarks live while the mock api advances the stages.
@@ -149,7 +177,7 @@ public sealed class ChatMessage : BindableObject
             ? $"document_{index}.pdf ({rnd.Next(50, 4000)} KB)"
             : BuildText(rnd, index);
 
-        return new ChatMessage
+        var message = new ChatMessage
         {
             Index = index,
             Outgoing = outgoing,
@@ -170,6 +198,14 @@ public sealed class ChatMessage : BindableObject
             Delivered = outgoing,
             Read = outgoing,
         };
+
+        // Test fixture for scroll-to-unknown: message 317 quotes a far older, not-yet-loaded
+        // message (189, mid-history). Tapping the quote at startup jumps to an unmeasured target.
+        // CreateMock is deterministic, so the quote ref's Index/Text matches _all[189] exactly.
+        if (index == 317)
+            message.ReplyTo = CreateMock(189);
+
+        return message;
     }
 
     private static string BuildText(Random rnd, int index)

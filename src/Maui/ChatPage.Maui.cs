@@ -17,7 +17,6 @@ namespace DrawnChatList;
 /// </summary>
 public partial class ChatPage : BasePageReloadable, IChatCellActions
 {
-    
     public ChatPage()
     {
         BackgroundColor = ChatTheme.Bg;
@@ -37,24 +36,19 @@ public partial class ChatPage : BasePageReloadable, IChatCellActions
     {
         Canvas?.Dispose(); //cleanup if HotReload
 
-        if (_all.Count == 0)
-        {
-            for (int i = 0; i < TotalItems; i++)
-                _all.Add(ChatMessage.CreateMock(i));
-        }
-
-        // Seed the window at the PRESENT, newest-first: the inverted scroll starts at content
-        // start = newest message at the visual bottom, no startup ScrollToIndex needed at all.
-        _items.Clear();
-        _windowEnd = _all.Count;
-        _windowStart = Math.Max(0, _windowEnd - LoadBatch);
-        _items.AddRange(ReversedRange(_windowStart, _windowEnd - _windowStart));
-
+        // Data source + async seed happen in InitializeList (after the scroll/host are built); the inverted
+        // scroll starts at content start = newest message at the visual bottom once the first slice arrives.
         Canvas = CreateCanvas();
 
         InitializeList();
 
-        Content = Canvas;
+        Content = new Grid() //respect safeinsets, MAUI needs its wrapper for that
+        {
+            Children =
+            {
+                Canvas
+            }
+        };
     }
 
     protected override void Dispose(bool isDisposing)
@@ -67,6 +61,4 @@ public partial class ChatPage : BasePageReloadable, IChatCellActions
 
         base.Dispose(isDisposing);
     }
-
-
 }

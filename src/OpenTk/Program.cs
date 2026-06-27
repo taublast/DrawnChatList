@@ -110,7 +110,7 @@ namespace DrawnChatList
             _lastFrameTicks = now;
 
 
-            //return; //uncomment for user manual testing  (comment out to run AI probes)
+            return; //uncomment for user manual testing  (comment out to run AI probes)
 
             //OffsetTest();
             //return;
