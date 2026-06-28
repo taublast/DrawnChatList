@@ -15,7 +15,7 @@ public partial class ChatPage
 
     // Memory cap: trim BEFORE loading, opposite end (see DevPage for the full contract).
     private const bool LimitMemoryWindow = true;
-    private const int MaxItemsInMemory = 200;
+    private const int MaxItemsInMemory = 120;
 
     // Windowed source, INVERTED (Items[i] == All[WindowEnd - 1 - i]). All window/paging/jump logic
     // lives in the reusable WindowedSource<T>; the page only owns UI (cells, FABs, highlight, theme).
