@@ -16,8 +16,10 @@ public class CellsStackCached : CellsStack
         // re-recorded) while scrolling within the margin = smooth. Without it the plane covers exactly the
         // viewport and every scroll frame re-records (jerky). The snapshot-fill + view-readiness gates keep
         // the wider async bakes hole-free.
-        if (UseDoubleBuffering && EnableGuards)
+        if (UseDoubleBuffering)
             VirtualisationInflatedRatio = 1.0;
+        else
+            VirtualisationInflatedRatio = 1.5;
     }
 
     // Content-space Y range (viewport at bake time) that the corresponding plane actually covers — the async
@@ -28,14 +30,6 @@ public class CellsStackCached : CellsStack
     private volatile bool _bakeInFlight; // one off-thread bake at a time; keep blitting current plane meanwhile
 
     private static bool UseDoubleBuffering = true;
-
-    /// <summary>
-    /// MASTER SWITCH for all the desync guards added on top of the raw double-buffer plane (dispatch snapshot,
-    /// trim re-anchor, coverage / snapshot-fill / view-readiness sync-fallbacks). Set FALSE to run the ORIGINAL
-    /// raw async double-buffer with zero guard overhead — for manually A/B-testing whether the guards add any
-    /// perceptible lag. TRUE = guarded (no empty bands).
-    /// </summary>
-    public static bool EnableGuards = true;
 
     private SkiaCacheType PlaneCacheType = SkiaCacheType.Operations;
 
@@ -54,6 +48,7 @@ public class CellsStackCached : CellsStack
 
     private int dirtyAfterCache = 0;
     private int _lastDrawn;
+    private bool _logLastLive; // [PLANE] probe: track live-fallback <-> blit transitions
 
     /// <summary>Mutation hook (LoadMore/trim/add/remove on the same collection) — invalidate the picture.</summary>
     protected override void OnItemsSourceCollectionChanged(object sender, NotifyCollectionChangedEventArgs args)
@@ -91,7 +86,7 @@ public class CellsStackCached : CellsStack
     private readonly List<ControlInStack> _bakePool = new();
 
     public override LayoutStructure GetStackStructure()
-        => (UseDoubleBuffering && EnableGuards && _bakeStructure != null) ? _bakeStructure : base.GetStackStructure();
+        => (UseDoubleBuffering  && _bakeStructure != null) ? _bakeStructure : base.GetStackStructure();
 
     /// <summary>Deep copy into the pooled buffer: reused ControlInStack instances (frozen geometry/flags) over
     /// the SAME live Views. Zero allocation once the pool has grown to the structure size.</summary>
@@ -254,7 +249,7 @@ public class CellsStackCached : CellsStack
     {
         base.OnContentTranslatedVertically(deltaPixels);
 
-        if (!UseDoubleBuffering || !EnableGuards || deltaPixels == 0)
+        if (!UseDoubleBuffering || deltaPixels == 0)
             return;
 
         ReanchorPlane(ForegroundPlane, deltaPixels);
@@ -306,6 +301,20 @@ public class CellsStackCached : CellsStack
             _foregroundCoveredBot = _preparedCoveredBot;
             _cacheValid = true;
             DisposeObject(old);
+            Debug.WriteLine($"[PLANE] SWAP consumed cover=[{_foregroundCoveredTop:0}..{_foregroundCoveredBot:0}]");
+        }
+    }
+
+
+    public bool IsCaching
+    {
+        get;
+        protected set
+        {
+            if (value == field) return;
+            field = value;
+            OnPropertyChanged();
+            Debug.WriteLine($"IsCaching {value}");
         }
     }
 
@@ -313,6 +322,29 @@ public class CellsStackCached : CellsStack
     {
         if (drawingRect.Height == 0 || drawingRect.Width == 0 || IsDisposed || IsDisposing)
             return;
+ 
+
+        // INITIAL-MEASURE GATE: while a MeasureVisible pass hasn't measured every item yet, the content
+        // extent is estimated and a scroll can enter the un-measured region. The plane only covers measured
+        // cells, so blitting it there paints a BLANK band. Treat incomplete-measure exactly like a fast
+        // fling — draw live cells directly (no plane) until measurement catches up, then resume caching.
+        // (Re-arms during a LoadMore grow and resumes the plane once measure reaches the new tail.)
+        if (MeasureItemsStrategy == MeasuringStrategy.MeasureVisible
+            && (ItemsSource != null && LastMeasuredIndex < ItemsSource.Count - 1) 
+            || ChildrenFactory.TotalCellsCount < ItemTemplatePoolSize
+            )
+        {
+            // Keep the plane invalidated while gated: this branch skips all plane upkeep (UpdatePlanes /
+            // CreateCache / _recordOffsetY), so ForegroundPlane would otherwise stay frozen at a pre-gate
+            // scroll position. When the gate releases mid-scroll the stale plane would blit at the wrong
+            // offset (cells-over-cells). Force a fresh record on resume.
+            _contentChanged = true;
+            _cacheValid = false;
+            IsCaching = false;
+            base.DrawDirectInternal(context, drawingRect);
+            return;
+        }
+
 
         var destination = context.Destination;
 
@@ -357,7 +389,7 @@ public class CellsStackCached : CellsStack
         // reuse a plane the viewport has already outrun and blit an uncovered strip (the residual band). Also
         // require the viewport to still sit within the plane's recorded coverage. Sync re-records every miss,
         // so its plane is never stale enough — leave it on the cheaper drift check.
-        if (canUseCache && UseDoubleBuffering && EnableGuards && ForegroundPlane != null)
+        if (canUseCache && UseDoubleBuffering && ForegroundPlane != null)
         {
             float vpTop = -destination.Top;
             float vpBot = vpTop + (float)ParentViewport.Pixels.Height;
@@ -382,16 +414,30 @@ public class CellsStackCached : CellsStack
         // current viewport, blitting it paints an empty band. Draw the LIVE cells this ONE frame instead — the
         // correct "cache not ready yet" fallback (what the sync path does on every miss), incurred only on the
         // rare uncovered frame so smoothness is preserved. The next ready bake resumes blitting.
-        if (UseDoubleBuffering && EnableGuards && ForegroundPlane != null)
+        if (UseDoubleBuffering && ForegroundPlane != null)
         {
             float vpTop = -destination.Top;
             float vpBot = vpTop + (float)ParentViewport.Pixels.Height;
             bool planeCovers = vpTop >= _foregroundCoveredTop - 1f && vpBot <= _foregroundCoveredBot + 1f;
-            if (!planeCovers)
+            if (!planeCovers) //FAST FLING, JUMP
             {
+                if (!_logLastLive)
+                {
+                    Debug.WriteLine($"[PLANE] LIVE-fallback START vp=[{vpTop:0}..{vpBot:0}] cover=[{_foregroundCoveredTop:0}..{_foregroundCoveredBot:0}] (plane uncovered)");
+                    _logLastLive = true;
+                }
+                IsCaching = false;
                 base.DrawDirectInternal(context, drawingRect); // live cells, no stale-plane band
                 return;
             }
+        }
+
+        IsCaching = true;
+
+        if (_logLastLive)
+        {
+            Debug.WriteLine($"[PLANE] BLIT resume");
+            _logLastLive = false;
         }
 
         // Both modes blit here: double-buffer blits the current plane while a new one bakes; sync blits the
@@ -458,21 +504,36 @@ public class CellsStackCached : CellsStack
     /// Does the snapshot's measured cells TILE the content band [top..bot] with no gap and reach its bottom?
     /// A transient structure (mid grow/trim reposition) leaves a hole the async bake would freeze into the
     /// plane; detecting it here lets the caller record live (sync) instead. Cells are in index order.
+    /// <para><paramref name="tol"/> is the gap tolerance in PIXELS — must be >= the layout inter-cell spacing
+    /// (Spacing * RenderingScale), else the legitimate spacing between every cell reads as a hole and the gate
+    /// rejects every valid bake (the Android blank-plane bug: 12px spacing vs a hardcoded 8px tol).</para>
     /// </summary>
-    static bool SnapshotFillsViewport(LayoutStructure s, float top, float bot)
+    static bool SnapshotFillsViewport(LayoutStructure s, float top, float bot, float tol)
     {
         if (s == null) return false;
         float cursor = top;
+        bool started = false;
         foreach (var c in s.GetChildren())
         {
             if (c == null || !c.WasMeasured) continue;
             float ct = c.Destination.Top, cb = c.Destination.Bottom;
             if (cb <= top) continue;            // entirely above the band
             if (ct >= bot) break;               // entirely below (index-ordered) -> done scanning
-            if (ct > cursor + 8f) return false; // gap between the last covered Y and this cell (>spacing)
+            if (!started)
+            {
+                // Empty space ABOVE the first cell in the band (viewport overscrolled past content top, e.g.
+                // the inverted start-anchor putting bareTop negative) is NOT a hole — start covering at the
+                // first cell instead of demanding tiling from the (out-of-content) band top.
+                cursor = ct;
+                started = true;
+            }
+            else if (ct > cursor + tol)
+            {
+                return false;                   // real gap between cells (> spacing)
+            }
             if (cb > cursor) cursor = cb;
         }
-        return cursor >= bot - 8f;              // covered all the way to the band bottom
+        return cursor >= bot - tol;             // covered all the way to the band bottom
     }
 
     /// <summary>
@@ -518,10 +579,11 @@ public class CellsStackCached : CellsStack
         // on those frames IS the spike double-buffering exists to kill. They bake ASYNC and keep blitting the
         // current (whole) plane; an incomplete bake is DISCARDED (below), never swapped in as a hole.
         bool useSync = !UseDoubleBuffering ||
-                       (EnableGuards && (ForegroundPlane == null || orderedScroll));
+                       (ForegroundPlane == null || orderedScroll);
 
         if (useSync)
         {
+            Debug.WriteLine($"[PLANE] SYNC record firstPlane={ForegroundPlane == null} ordered={orderedScroll} cover=[{coveredTop:0}..{coveredBot:0}]");
             if (PlaneCacheType == SkiaCacheType.Operations)
             {
                 _recorder ??= new SKPictureRecorder();
@@ -622,7 +684,12 @@ public class CellsStackCached : CellsStack
         // ===== ASYNC bake: NO render-thread record => NO LoadMore/scroll spike =====
         // Keep blitting the current (whole) plane while a new one bakes off-thread. One bake at a time.
         if (_bakeInFlight)
+        {
+            Debug.WriteLine($"[PLANE] async-skip (bake in flight)");
             return;
+        }
+
+        Debug.WriteLine($"[PLANE] async-kick band=[{bareTop:0}..{bareBot:0}] cover=[{coveredTop:0}..{coveredBot:0}]");
 
         // Freeze the structure ONLY during an actual structure MUTATION (LoadMore grow / head-insert / trim) —
         // the only window the live structure is unsafe for the off-thread bake (cells mid-translate/rekey).
@@ -630,12 +697,9 @@ public class CellsStackCached : CellsStack
         // copy: that copy on every scroll-dispatch was the periodic render-thread spike ("0.2s smooth, lag,
         // smooth"). Background measure only touches far off-viewport cells, so it needs no freeze.
         LayoutStructure bakeSnapshot = null;
-        if (EnableGuards)
+        lock (LockMeasure)
         {
-            lock (LockMeasure)
-            {
-                bakeSnapshot = FreezeStructure(base.GetStackStructure());
-            }
+            bakeSnapshot = FreezeStructure(base.GetStackStructure());
         }
         _bakeInFlight = true;
 
@@ -659,15 +723,50 @@ public class CellsStackCached : CellsStack
                 // off-thread => still zero render-thread work, zero spike. Guards-off skips the check (raw).
                 // Pure-scroll bakes (no freeze) read the stable live viewport -> trust them. Only validate a
                 // bake taken DURING a mutation (has a frozen snapshot), where a hole is possible.
-                bool complete = !EnableGuards || bakeSnapshot == null ||
-                                (SnapshotFillsViewport(bakeSnapshot, bareTop, bareBot) &&
-                                 ViewportViewsRealized(bakeSnapshot, bareTop, bareBot));
+                // gap tolerance must cover the real inter-cell spacing in pixels (Spacing * scale), plus a small
+                // epsilon — a hardcoded 8px rejected the 12px-spaced chat cells and discarded every bake.
+                float fillTol = Math.Max(8f, (float)(Spacing * RenderingScale) + 2f);
+                bool fills = bakeSnapshot == null || SnapshotFillsViewport(bakeSnapshot, bareTop, bareBot, fillTol);
+                bool realized = bakeSnapshot == null || ViewportViewsRealized(bakeSnapshot, bareTop, bareBot);
+                bool complete = bakeSnapshot == null || (fills && realized);
                 if (!complete)
                 {
+                    // dump snapshot measured-cell span to see if cells are in a different frame than the band
+                    float sMin = float.MaxValue, sMax = float.MinValue; int sCnt = 0; float firstGapAt = float.NaN;
+                    if (bakeSnapshot != null)
+                    {
+                        float cursor = bareTop;
+                        foreach (var c in bakeSnapshot.GetChildren())
+                        {
+                            if (c == null || !c.WasMeasured) continue;
+                            sCnt++;
+                            if (c.Destination.Top < sMin) sMin = c.Destination.Top;
+                            if (c.Destination.Bottom > sMax) sMax = c.Destination.Bottom;
+                            if (c.Destination.Bottom <= bareTop) continue;
+                            if (c.Destination.Top >= bareBot) continue;
+                            if (float.IsNaN(firstGapAt) && c.Destination.Top > cursor + fillTol) firstGapAt = cursor;
+                            if (c.Destination.Bottom > cursor) cursor = c.Destination.Bottom;
+                        }
+                    }
+                    // list cells overlapping the band in ITERATION order (detect inverted/descending order or real gap)
+                    var sb = new System.Text.StringBuilder();
+                    if (bakeSnapshot != null)
+                    {
+                        int n = 0;
+                        foreach (var c in bakeSnapshot.GetChildren())
+                        {
+                            if (c == null || !c.WasMeasured) continue;
+                            if (c.Destination.Bottom <= bareTop || c.Destination.Top >= bareBot) continue;
+                            sb.Append($" #{c.ControlIndex}:{c.Destination.Top:0}-{c.Destination.Bottom:0}");
+                            if (++n >= 14) { sb.Append(" ..."); break; }
+                        }
+                    }
+                    Debug.WriteLine($"[PLANE] DISCARD fills={fills} band=[{bareTop:0}..{bareBot:0}] snapCells={sCnt} snapSpan=[{sMin:0}..{sMax:0}] firstGapAt={firstGapAt:0} cells:{sb}");
                     DisposeObject(rendered);
                     _contentChanged = true; // force a retry next frame
                     return;
                 }
+                Debug.WriteLine($"[PLANE] PUBLISH bake cover=[{coveredTop:0}..{coveredBot:0}] (pureScroll={bakeSnapshot == null})");
 
                 // Coverage set BEFORE publish so the render thread consumes a consistent plane+range pair.
                 _preparedCoveredTop = coveredTop;

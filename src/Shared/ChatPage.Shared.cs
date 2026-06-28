@@ -200,7 +200,6 @@ public partial class ChatPage
                                         Content = new AppMessagesStack
                                         {
                                             BackgroundMeasurementBatchSize = LoadBatch,
-                                            VirtualisationInflatedRatio = 1.5,
                                             ReserveTemplates = LoadBatch * 2,
                                             ItemTemplatePoolSize = MaxItemsInMemory + LoadBatch + 5, //prefill
                                             ItemTemplateType = typeof(ChatCell),

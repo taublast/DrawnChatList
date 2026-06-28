@@ -1,6 +1,6 @@
 namespace DrawnChatList;
 
-public class AppMessagesStack : CellsStack
+public class AppMessagesStack : CellsStack//Cached
 {
 
 }
