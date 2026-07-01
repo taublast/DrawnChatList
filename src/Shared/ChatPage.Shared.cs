@@ -960,7 +960,8 @@ public partial class ChatPage
             _window.InsertNewest(msg);
 
             // Sending always returns the user to their message (original app behavior).
-            ScrollToNewest(true);
+            if (!MainScroll.InContact)
+                ScrollToNewest(true);
         });
 
         _api.Send(msg); // mock backend advances Sent -> Delivered -> Read, then replies
@@ -992,7 +993,8 @@ public partial class ChatPage
         {
             if (_window.InsertNewest(msg) && atNewest)
             {
-                ScrollToNewest(true);
+                if (!MainScroll.InContact)
+                    ScrollToNewest(true);
             }
         });
     }
@@ -1017,11 +1019,11 @@ public partial class ChatPage
 
         var cts = _aiMockCts = new CancellationTokenSource();
 
-        bool atNewest = ChatStack.FirstVisibleIndex <= 1;
         var msg = CreateTailMessage("…", outgoing: false);
         _service.Append(msg);
-        if (_window.InsertNewest(msg) && atNewest)
-            ScrollToNewest(true);
+        if (_window.InsertNewest(msg))
+            if (!MainScroll.InContact)
+                ScrollToNewest(true);
 
         SetBotTyping(true);
         _ = StreamMockAiAnswer(msg, cts.Token);

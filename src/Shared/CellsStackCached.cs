@@ -1,8 +1,8 @@
-using System.Collections.Specialized;
-using System.Diagnostics;
 using DrawnUi.Draw;
 using DrawnUi.Views;
 using SkiaSharp;
+using System.Collections.Specialized;
+using System.Diagnostics;
 
 namespace DrawnChatList;
 
@@ -28,8 +28,18 @@ public class CellsStackCached : CellsStack
     private float _foregroundCoveredTop, _foregroundCoveredBot;
     private volatile float _preparedCoveredTop, _preparedCoveredBot;
     private volatile bool _bakeInFlight; // one off-thread bake at a time; keep blitting current plane meanwhile
+    private readonly System.Threading.ManualResetEventSlim _bakeDone = new(true); // signalled when no bake running
 
     private static bool UseDoubleBuffering = true;
+
+    // When true, bypass the offscreen band-plane entirely: draw per-cell Image-cached cells directly on the
+    // render thread (exactly the plain CellsStack path via base.DrawDirectInternal). No off-thread bake =>
+    // no concurrent access to a live view's non-thread-safe BindableObject._values (GetValue writes on a
+    // read-miss) => no structure corruption / crash. The async plane is fundamentally unsafe with live
+    // (shared mutable) views: FreezeStructure froze geometry but the View instances stay shared. Proven via
+    // the OpenTk SlowScrollAndCheck rig (concurrent-Dictionary crash with DirectDraw=false, clean with true).
+    // Isolated to this subclass: plain CellsStack never sees this and is unaffected.
+    public static bool DirectDraw = false;
 
     private SkiaCacheType PlaneCacheType = SkiaCacheType.Operations;
 
@@ -322,129 +332,107 @@ public class CellsStackCached : CellsStack
     {
         if (drawingRect.Height == 0 || drawingRect.Width == 0 || IsDisposed || IsDisposing)
             return;
- 
-
-        // INITIAL-MEASURE GATE: while a MeasureVisible pass hasn't measured every item yet, the content
-        // extent is estimated and a scroll can enter the un-measured region. The plane only covers measured
-        // cells, so blitting it there paints a BLANK band. Treat incomplete-measure exactly like a fast
-        // fling — draw live cells directly (no plane) until measurement catches up, then resume caching.
-        // (Re-arms during a LoadMore grow and resumes the plane once measure reaches the new tail.)
-        if (MeasureItemsStrategy == MeasuringStrategy.MeasureVisible
-            && (ItemsSource != null && LastMeasuredIndex < ItemsSource.Count - 1) 
-            || ChildrenFactory.TotalCellsCount < ItemTemplatePoolSize
-            )
-        {
-            // Keep the plane invalidated while gated: this branch skips all plane upkeep (UpdatePlanes /
-            // CreateCache / _recordOffsetY), so ForegroundPlane would otherwise stay frozen at a pre-gate
-            // scroll position. When the gate releases mid-scroll the stale plane would blit at the wrong
-            // offset (cells-over-cells). Force a fresh record on resume.
-            _contentChanged = true;
-            _cacheValid = false;
-            IsCaching = false;
-            base.DrawDirectInternal(context, drawingRect);
-            return;
-        }
 
 
         var destination = context.Destination;
+        float vpH = (float)ParentViewport.Pixels.Height;
 
-        //needed for updating after some already present cell size changes
-        if (HasPendingStructureChanges)
-            _contentChanged = true;
-
-        // only dirty children that are inside the current structure trigger a re-record
-        bool dirty = !DirtyChildrenTracker.IsEmpty;
-        if (dirty)
-        {
-            dirtyAfterCache++; //for DEBUG
-        }
-
-        bool canUseCache;
-
+        // Consume a plane the off-thread bake just finished.
         UpdatePlanes();
 
-        // While an ordered ScrollToIndex is in flight the viewport is stepping toward a target that may be
-        // OUTSIDE the cached band. Blitting the band skips Paint()/DrawStackVisibleChildren, so cells toward
-        // the target never get tracked/positioned and the scroll stalls before reaching it (the "jump to a
-        // replied message -> not shown" bug). Force live paint until the ordered scroll completes.
+        if (HasPendingStructureChanges)
+            _contentChanged = true;
+        bool dirty = !DirtyChildrenTracker.IsEmpty;
+
+        // MeasureVisible hasn't measured every item yet -> content extent is estimated, plane unreliable.
+        bool measuring = MeasureItemsStrategy == MeasuringStrategy.MeasureVisible
+                         && ((ItemsSource != null && LastMeasuredIndex < ItemsSource.Count - 1)
+                             || ChildrenFactory.TotalCellsCount < ItemTemplatePoolSize);
+        // ordered ScrollToIndex (jump-to-message) must live-paint each frame to track cells toward the target.
         bool orderedScroll = Parent is SkiaScroll os &&
                              (os.OrderedScrollToIndexIsSet || os.OrderedScrollTo.IsValid);
 
-        // nothing moved, nothing changed
-        if (!orderedScroll && _cacheValid && !dirty && !_contentChanged && destination == _lastDestination &&
-            drawingRect == _lastDrawingRect)
+        // COVERAGE IS THE SIGNAL. Does the current plane actually cover the visible viewport? Not the scroll
+        // velocity — coverage. Covered -> blit (smooth). Not covered = a gap -> draw live cells (below).
+        bool covered = PlaneCoversViewport(destination, vpH);
+
+        if (covered && !measuring && !orderedScroll && _cacheValid && !dirty && !_contentChanged)
         {
-            canUseCache = true;
-        }
-        else
-        {
-            float stableAreaPx = ParentViewport.Pixels.Height;
-
-            //band covers
-            canUseCache = !orderedScroll && _cacheValid && !dirty && !_contentChanged &&
-                          Math.Abs(destination.Top - _recordOffsetY) < stableAreaPx;
-        }
-
-        // In double-buffer the plane can be SEVERAL frames stale (async lag); the drift threshold alone would
-        // reuse a plane the viewport has already outrun and blit an uncovered strip (the residual band). Also
-        // require the viewport to still sit within the plane's recorded coverage. Sync re-records every miss,
-        // so its plane is never stale enough — leave it on the cheaper drift check.
-        if (canUseCache && UseDoubleBuffering && ForegroundPlane != null)
-        {
-            float vpTop = -destination.Top;
-            float vpBot = vpTop + (float)ParentViewport.Pixels.Height;
-            if (!(vpTop >= _foregroundCoveredTop - 1f && vpBot <= _foregroundCoveredBot + 1f))
-                canUseCache = false;
-        }
-
-        if (!canUseCache)
-        {
-            _cacheValid = true;
-            _recordOffsetY = destination.Top;
-            _contentChanged = false;
-
-            CreateCache(context, drawingRect);
-        }
-
-        _lastDestination = destination;
-        _lastDrawingRect = drawingRect;
-
-        // STALE-PLANE BAND GUARD: in double-buffer the plane can lag several frames behind a faster-than-bake
-        // flick. CreateCache just kicked an async bake and kept the OLD plane; if that plane doesn't cover the
-        // current viewport, blitting it paints an empty band. Draw the LIVE cells this ONE frame instead — the
-        // correct "cache not ready yet" fallback (what the sync path does on every miss), incurred only on the
-        // rare uncovered frame so smoothness is preserved. The next ready bake resumes blitting.
-        if (UseDoubleBuffering && ForegroundPlane != null)
-        {
-            float vpTop = -destination.Top;
-            float vpBot = vpTop + (float)ParentViewport.Pixels.Height;
-            bool planeCovers = vpTop >= _foregroundCoveredTop - 1f && vpBot <= _foregroundCoveredBot + 1f;
-            if (!planeCovers) //FAST FLING, JUMP
+            // Refresh the plane ahead (async) once the viewport drifts half a viewport, so it stays covered as
+            // scroll continues. Keep blitting the current (still-covering) plane meanwhile — no live draw.
+            if (!_bakeInFlight && Math.Abs(destination.Top - _recordOffsetY) >= vpH * 0.5f)
             {
-                if (!_logLastLive)
-                {
-                    Debug.WriteLine($"[PLANE] LIVE-fallback START vp=[{vpTop:0}..{vpBot:0}] cover=[{_foregroundCoveredTop:0}..{_foregroundCoveredBot:0}] (plane uncovered)");
-                    _logLastLive = true;
-                }
-                IsCaching = false;
-                base.DrawDirectInternal(context, drawingRect); // live cells, no stale-plane band
+                _recordOffsetY = destination.Top;
+                CreateCache(context, drawingRect);
+            }
+            _lastDestination = destination;
+            _lastDrawingRect = drawingRect;
+            IsCaching = true;
+            DrawCache(context, destination);
+            return;
+        }
+
+        // NOT COVERED (gap) / measuring / ordered / invalidated -> need live cells this frame. A bake may be
+        // drawing the SAME live views on a background thread; live-drawing now would race it (SKPath/_values
+        // crash). Briefly wait for it to drain, then re-check — it may have produced a covering plane.
+        if (_bakeInFlight)
+        {
+            _bakeDone.Wait(50);
+            UpdatePlanes();
+            if (_bakeInFlight)
+            {
+                // bake still running after the wait -> do NOT race it: blit what we have (rare, only if a bake
+                // exceeds 50ms). Covered or not, blitting never touches the live views.
+                _lastDestination = destination;
+                _lastDrawingRect = drawingRect;
+                IsCaching = true;
+                if (ForegroundPlane != null)
+                    DrawCache(context, destination);
+                return;
+            }
+            if (!measuring && !orderedScroll && _cacheValid && !dirty && !_contentChanged
+                && PlaneCoversViewport(destination, vpH))
+            {
+                _lastDestination = destination;
+                _lastDrawingRect = drawingRect;
+                IsCaching = true;
+                DrawCache(context, destination); // bake landed a covering plane while we waited
                 return;
             }
         }
 
-        IsCaching = true;
+        // DIRECT DRAW live cells — fills the gap, always current (no blank). Sole drawer (bake drained above).
+        IsCaching = false;
+        _cacheValid = false;
+        _contentChanged = true;
+        base.DrawDirectInternal(context, drawingRect);
 
-        if (_logLastLive)
+        bool moved = Math.Abs(destination.Top - _lastDestination.Top) > 0.5f;
+        _lastDestination = destination;
+        _lastDrawingRect = drawingRect;
+
+        // Viewport SETTLED (not moving) in an uncovered spot, measurement done -> record a plane so the next
+        // frames can blit again. Kicked AFTER the live draw (sequential this frame); the next uncovered frame
+        // waits on _bakeDone before any further live draw. While settled a bake is invisible (nothing moves).
+        if (!moved && !measuring && !orderedScroll && !_bakeInFlight)
         {
-            Debug.WriteLine($"[PLANE] BLIT resume");
-            _logLastLive = false;
+            _recordOffsetY = destination.Top;
+            _contentChanged = false;
+            CreateCache(context, drawingRect);
         }
-
-        // Both modes blit here: double-buffer blits the current plane while a new one bakes; sync blits the
-        // plane just recorded this frame. (Skipping this in sync mode left record frames empty/flickering.)
-        DrawCache(context, destination);
     }
 
+    /// <summary>Does the current ForegroundPlane's recorded coverage span the whole visible viewport?</summary>
+    private bool PlaneCoversViewport(SKRect destination, float vpH)
+    {
+        if (ForegroundPlane == null)
+            return false;
+        float vpTop = -destination.Top;
+        float vpBot = vpTop + vpH;
+        return vpTop >= _foregroundCoveredTop - 1f && vpBot <= _foregroundCoveredBot + 1f;
+    }
+
+ 
     CachedObject CreateRenderObject(DrawingContext context, SKRect recordArea)
     {
         dirtyAfterCache = 0;
@@ -574,6 +562,21 @@ public class CellsStackCached : CellsStack
         float coveredTop = bareTop - inflateY;
         float coveredBot = bareBot + inflateY;
 
+        // COMPLETENESS GATE (both sync AND async): never record a plane while the viewport isn't fully realized
+        // + filled (pool/measure still catching up). A partial record installs a plane with a HOLE — the
+        // "cells 0-1-2-3 then blank half screen" bug — and blitting it later shows the gap. Skip recording; the
+        // caller keeps DIRECT-DRAWING (which realizes+draws every visible cell) until the viewport is whole,
+        // then a complete plane records. The async path also re-checks post-bake, but the SYNC path had no gate
+        // at all, so a slow-realizing device installed partial first planes.
+        {
+            var live = base.GetStackStructure();
+            float gTol = Math.Max(8f, (float)(Spacing * RenderingScale) + 2f);
+            if (live == null
+                || !SnapshotFillsViewport(live, bareTop, bareBot, gTol)
+                || !ViewportViewsRealized(live, bareTop, bareBot))
+                return;
+        }
+
         // SYNC only when async genuinely can't serve: not double-buffering, the FIRST plane (nothing to blit
         // yet), or an ordered-scroll jump. LoadMore / trim / normal scroll NEVER sync — a render-thread record
         // on those frames IS the spike double-buffering exists to kill. They bake ASYNC and keep blitting the
@@ -702,6 +705,7 @@ public class CellsStackCached : CellsStack
             bakeSnapshot = FreezeStructure(base.GetStackStructure());
         }
         _bakeInFlight = true;
+        _bakeDone.Reset();
 
         PushToOffscreenRendering(() =>
         {
@@ -785,6 +789,7 @@ public class CellsStackCached : CellsStack
             finally
             {
                 _bakeInFlight = false;
+                _bakeDone.Set();
                 Repaint();
             }
         });

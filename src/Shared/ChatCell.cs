@@ -95,7 +95,7 @@ public class ChatCell : SkiaDynamicDrawnCell
         
         //we will be suing sell in context of MeasureVisible (background measure) so
         //we about ImageDoubleBuffered and GPU for background thread safe processing
-        UseCache = SkiaCacheType.Image;//DoubleBuffered;//async raster off the render thread -> no cold-cell fling spike
+        UseCache = SkiaCacheType.ImageDoubleBuffered;
 
         Children = new List<SkiaControl>
         {
