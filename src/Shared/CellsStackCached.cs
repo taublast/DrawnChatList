@@ -27,6 +27,7 @@ public class CellsStackCached : CellsStack
     // the plane can't fill it. Used to fall back to a sync record instead of blitting an uncovered plane.
     private float _foregroundCoveredTop, _foregroundCoveredBot;
     private volatile float _preparedCoveredTop, _preparedCoveredBot;
+    private volatile int _preparedGen; // _structureGen the prepared plane was frozen under (checked at consume)
     private volatile bool _bakeInFlight; // one off-thread bake at a time; keep blitting current plane meanwhile
     private readonly System.Threading.ManualResetEventSlim _bakeDone = new(true); // signalled when no bake running
 
@@ -44,7 +45,10 @@ public class CellsStackCached : CellsStack
 #if ANDROID || IOS || MACCATALYST || WINDOWS
     private const bool AsyncBakeSafe = false;
 #else
-    private const bool AsyncBakeSafe = true;
+    // Rig A/B affordance: CHAT_FORCE_SYNC=1 forces the MAUI sync-record decision path on the desktop rig,
+    // so MAUI-head plane behavior can be reproduced and profiled without a device.
+    private static readonly bool AsyncBakeSafe =
+        Environment.GetEnvironmentVariable("CHAT_FORCE_SYNC") != "1";
 #endif
 
     // When true, bypass the offscreen band-plane entirely: draw per-cell Image-cached cells directly on the
@@ -86,6 +90,7 @@ public class CellsStackCached : CellsStack
     public override void OnStructureChanged()
     {
         _contentChanged = true; // head-insert/commit & other structure rebuilds invalidate the cache
+        _structureGen++;        // and orphan any bake frozen before the rebuild (stale coordinates)
 
         base.OnStructureChanged();
     }
@@ -283,6 +288,7 @@ public class CellsStackCached : CellsStack
 
         ReanchorPlane(ForegroundPlane, deltaPixels);
         ReanchorPlane(_preparedPlane, deltaPixels); // a bake from the pre-shift frame may be mid-flight
+        _structureGen++; // a bake NOT yet published can't be reanchored — orphan it (discards at publish)
         _recordOffsetY += deltaPixels; // keep band-drift origin in the post-shift frame
 
         // cells moved -deltaPixels in content space, so the plane's covered content range moves with them
@@ -301,6 +307,14 @@ public class CellsStackCached : CellsStack
         plane.Bounds = new SKRect(plane.Bounds.Left, plane.Bounds.Top + deltaPixels,
             plane.Bounds.Right, plane.Bounds.Bottom + deltaPixels);
     }
+
+    // Bumped by the render thread on every structural rebase the bake's coordinates depend on: head-insert/
+    // remove commits (OnStructureChanged) and content translates (OnContentTranslatedVertically). A bake
+    // frozen under an older generation would publish PRE-shift coordinates + coverage AFTER the shift — the
+    // reanchor sweep only fixes planes already in the slots, an in-flight bake slips past it and blits
+    // shifted (overlapping) content. The bake captures the generation at freeze and discards itself at
+    // publish if it changed; the discard re-flags _contentChanged so the next frame re-records.
+    private volatile int _structureGen;
 
     // The plane currently being blitted. ONLY the render thread reads/writes it.
     public CachedObject ForegroundPlane { get; set; }
@@ -324,6 +338,17 @@ public class CellsStackCached : CellsStack
         var prepared = Interlocked.Exchange(ref _preparedPlane, null);
         if (prepared != null)
         {
+            // CONSUME-time generation check (render thread, same thread as the rebases -> race-free): a bake
+            // can pass its own pre-publish check and still publish inside the translate's micro-window. Its
+            // coordinates are pre-shift — promoting it would blit shifted content. Drop it and re-record.
+            if (_preparedGen != _structureGen)
+            {
+                Debug.WriteLine($"[PLANE] DROP stale-gen prepared plane at consume ({_preparedGen} != {_structureGen})");
+                DisposeObject(prepared);
+                _contentChanged = true;
+                return;
+            }
+
             var old = ForegroundPlane;
             ForegroundPlane = prepared;
             _foregroundCoveredTop = _preparedCoveredTop; // carry the bake's coverage with the promoted plane
@@ -363,8 +388,15 @@ public class CellsStackCached : CellsStack
             _contentChanged = true;
         bool dirty = !DirtyChildrenTracker.IsEmpty;
 
-        // MeasureVisible hasn't measured every item yet -> content extent is estimated, plane unreliable.
-        bool measuring = MeasureItemsStrategy == MeasuringStrategy.MeasureVisible
+        // MeasureVisible hasn't measured every item yet -> content extent is estimated. This is a GLOBAL
+        // flag: into-history every LoadOlder batch keeps it true for the whole tail measure, which blocked
+        // blitting for hundreds of frames at a time and alternated with blit stretches — the bottom->top
+        // pacing jerk (mirror of the old->new one). On SYNC heads the per-band completeness gates + the
+        // coverage clamp verify the ACTUAL viewport at record time and coverage misses fall back safely, so
+        // the global gate adds nothing there — gate only ASYNC heads with it (bakes sample the live pool
+        // concurrently; keep their exposure at the proven baseline cadence).
+        bool measuring = AsyncBakeSafe
+                         && MeasureItemsStrategy == MeasuringStrategy.MeasureVisible
                          && ((ItemsSource != null && LastMeasuredIndex < ItemsSource.Count - 1)
                              || ChildrenFactory.TotalCellsCount < ItemTemplatePoolSize);
         // ordered ScrollToIndex (jump-to-message) must live-paint each frame to track cells toward the target.
@@ -381,8 +413,8 @@ public class CellsStackCached : CellsStack
             // scroll continues. Keep blitting the current (still-covering) plane meanwhile — no live draw.
             if (!_bakeInFlight && Math.Abs(destination.Top - _recordOffsetY) >= vpH * 0.5f)
             {
-                _recordOffsetY = destination.Top;
-                CreateCache(context, drawingRect);
+                CreateCache(context, drawingRect); // commits _recordOffsetY/_contentChanged itself on success;
+                                                   // a gate-reject leaves them so we retry next frame
             }
             _lastDestination = destination;
             _lastDrawingRect = drawingRect;
@@ -420,25 +452,39 @@ public class CellsStackCached : CellsStack
             }
         }
 
-        // DIRECT DRAW live cells — fills the gap, always current (no blank). Sole drawer (bake drained above).
         IsCaching = false;
         _cacheValid = false;
         _contentChanged = true;
-        base.DrawDirectInternal(context, drawingRect);
 
         bool moved = Math.Abs(destination.Top - _lastDestination.Top) > 0.5f;
+
+        // Re-establish the plane. SYNC heads (MAUI): moving OR settled — waiting for a settle (!moved) left
+        // every post-invalidation scroll stretch (each LoadNewer head-insert sets _contentChanged) on
+        // per-frame direct draw until the next drag re-grab: hundreds-of-frames direct/blit blocks
+        // alternating = the old->new jerky pacing. A sync record here (one paint) is blitted below — same
+        // cost as the direct draw it replaces. ASYNC heads: settle-only, as before. Kicking bakes on moving
+        // invalidated frames made bakes constantly sample structure-mutation windows and races the live-view
+        // pool (bail-vs-recycle -> published planes missing cells, rig IDXGAP bursts) — the async compositor
+        // isn't safe for that cadence until it paints from a fully frozen snapshot. Async smoothness doesn't
+        // need it: the covered-branch drift refresh already bakes mid-scroll without settling.
+        if ((!AsyncBakeSafe || !moved) && !measuring && !orderedScroll && !_bakeInFlight)
+        {
+            CreateCache(context, drawingRect);
+            if (_cacheValid && !_contentChanged && PlaneCoversViewport(destination, vpH))
+            {
+                _lastDestination = destination;
+                _lastDrawingRect = drawingRect;
+                IsCaching = true;
+                DrawCache(context, destination);
+                return;
+            }
+        }
+
+        // DIRECT DRAW live cells — fills the gap, always current (no blank). Sole drawer (bake drained above).
+        base.DrawDirectInternal(context, drawingRect);
+
         _lastDestination = destination;
         _lastDrawingRect = drawingRect;
-
-        // Viewport SETTLED (not moving) in an uncovered spot, measurement done -> record a plane so the next
-        // frames can blit again. Kicked AFTER the live draw (sequential this frame); the next uncovered frame
-        // waits on _bakeDone before any further live draw. While settled a bake is invisible (nothing moves).
-        if (!moved && !measuring && !orderedScroll && !_bakeInFlight)
-        {
-            _recordOffsetY = destination.Top;
-            _contentChanged = false;
-            CreateCache(context, drawingRect);
-        }
     }
 
     /// <summary>Does the current ForegroundPlane's recorded coverage span the whole visible viewport?</summary>
@@ -538,6 +584,14 @@ public class CellsStackCached : CellsStack
             {
                 return false;                   // real gap between cells (> spacing)
             }
+            else if (ct < cursor - tol)
+            {
+                // OVERLAP: a transient mid-mutation state (e.g. a single-item height delta landed while a
+                // background batch was positioned against the old bottoms). Never bake it — a plane would
+                // serve the overlap for its whole life; a live draw heals next frame. (Assumes Split==1,
+                // like the cursor tiling above.)
+                return false;
+            }
             if (cb > cursor) cursor = cb;
         }
         return cursor >= bot - tol;             // covered all the way to the band bottom
@@ -560,6 +614,70 @@ public class CellsStackCached : CellsStack
                 return false;
         }
         return true;
+    }
+
+    /// <summary>
+    /// Shrink claimed coverage to the contiguous measured+realized cell span containing the bare viewport.
+    /// Walks cells in index order (ascending top) within the claim band, merging contiguous recordable cells
+    /// into segments; a hole (unmeasured/unrealized cell) or a gap (> tol with more cells beyond) closes a
+    /// segment. Clamp rules: a blocked BELOW edge always clamps (the closer is a real cell the record misses);
+    /// the ABOVE edge clamps only when a block preceded the segment inside the band. Content ends (no cells
+    /// beyond) keep the original claim — empty space blits identically to a live draw.
+    /// </summary>
+    void ClampCoverageToRecordable(LayoutStructure s, float tol, float bareTop, float bareBot,
+        ref float coveredTop, ref float coveredBot)
+    {
+        bool blockedAbove = false;
+        float segTop = float.NaN, segBot = float.NaN;
+
+        foreach (var c in s.GetChildren()) // index order = ascending Destination.Top
+        {
+            if (c == null || c.IsCollapsed) continue;
+            float t = c.Destination.Top, b = c.Destination.Bottom;
+            if (b <= coveredTop) continue;
+            if (t >= coveredBot) break;
+
+            bool ok = c.WasMeasured && ChildrenFactory.IsViewRealizedForIndex(c.ControlIndex);
+            bool hasSeg = !float.IsNaN(segTop);
+            bool segDone = hasSeg && segTop <= bareTop && segBot >= bareBot; // segment spans the bare band
+
+            if (!ok)
+            {
+                // hole: a real cell the record misses closes the segment from below
+                if (segDone)
+                {
+                    if (blockedAbove) coveredTop = Math.Max(coveredTop, segTop);
+                    coveredBot = Math.Min(coveredBot, segBot);
+                    return;
+                }
+                blockedAbove = true; // any later segment has this hole above it
+                segTop = segBot = float.NaN;
+            }
+            else if (!hasSeg)
+            {
+                segTop = t; segBot = b; // first segment start — nothing above it inside the band
+            }
+            else if (t > segBot + tol)
+            {
+                // gap with a real cell on its far side
+                if (segDone)
+                {
+                    if (blockedAbove) coveredTop = Math.Max(coveredTop, segTop);
+                    coveredBot = Math.Min(coveredBot, segBot);
+                    return;
+                }
+                blockedAbove = true;
+                segTop = t; segBot = b;
+            }
+            else
+            {
+                if (b > segBot) segBot = b;
+            }
+        }
+
+        // loop ended at content end / claim edge: below is unblocked, keep coveredBot
+        if (blockedAbove && !float.IsNaN(segTop) && segTop <= bareTop && segBot >= bareBot)
+            coveredTop = Math.Max(coveredTop, segTop);
     }
 
     void CreateCache(DrawingContext context, SKRect recordArea)
@@ -593,8 +711,22 @@ public class CellsStackCached : CellsStack
             if (live == null
                 || !SnapshotFillsViewport(live, bareTop, bareBot, gTol)
                 || !ViewportViewsRealized(live, bareTop, bareBot))
-                return;
+                return; // reject: flags untouched, caller retries next frame
+
+            // COVERAGE CLAMP: the gates prove the BARE viewport, but the claim is the INFLATED band — cells
+            // in the margin can be unmeasured/unrealized, the record skips them, and blitting later shows
+            // blank where live cells exist (persistent RenderTree IDXGAP while that plane serves). Shrink
+            // the claim to the contiguous recordable span around the viewport. Content ENDS stay claimed
+            // (nothing recordable beyond them; clamping there would force a re-record every bounce frame).
+            ClampCoverageToRecordable(live, gTol, bareTop, bareBot, ref coveredTop, ref coveredBot);
         }
+
+        // Gates passed -> this record/kick WILL serve the current band: commit the drift origin and clear the
+        // invalidation HERE (not at the call sites). Committing before the gates ran used to eat the flags on
+        // a reject — postponing the next refresh half a viewport and masking a content change. The async
+        // discard path re-sets _contentChanged, so a failed bake still forces a retry.
+        _recordOffsetY = context.Destination.Top;
+        _contentChanged = false;
 
         // SYNC only when async genuinely can't serve: not double-buffering, the FIRST plane (nothing to blit
         // yet), or an ordered-scroll jump. LoadMore / trim / normal scroll NEVER sync — a render-thread record
@@ -700,6 +832,10 @@ public class CellsStackCached : CellsStack
 
             _foregroundCoveredTop = coveredTop; // a sync record covers the inflated band around the viewport
             _foregroundCoveredBot = coveredBot;
+            // Without this the blit branch never accepts a sync-recorded plane (_cacheValid is only set by the
+            // async swap in UpdatePlanes) — on sync-only heads (MAUI: AsyncBakeSafe=false) the plane was
+            // recorded but NEVER blitted, so every frame direct-drew and settled frames re-recorded for nothing.
+            _cacheValid = true;
             return;
         }
 
@@ -719,9 +855,11 @@ public class CellsStackCached : CellsStack
         // copy: that copy on every scroll-dispatch was the periodic render-thread spike ("0.2s smooth, lag,
         // smooth"). Background measure only touches far off-viewport cells, so it needs no freeze.
         LayoutStructure bakeSnapshot = null;
+        int bakeGen;
         lock (LockMeasure)
         {
             bakeSnapshot = FreezeStructure(base.GetStackStructure());
+            bakeGen = _structureGen; // coordinates frozen under this generation; a rebase orphans the bake
         }
         _bakeInFlight = true;
         _bakeDone.Reset();
@@ -789,11 +927,24 @@ public class CellsStackCached : CellsStack
                     _contentChanged = true; // force a retry next frame
                     return;
                 }
+                // Structure rebased (head-insert/remove commit, translate) since the freeze: the plane's
+                // coordinates and coverage are in the PRE-shift frame and the reanchor sweep already ran —
+                // installing it would blit shifted content over the post-shift cells (the overlap class the
+                // forced-sync path never shows). Discard; _contentChanged makes the next frame re-record.
+                if (bakeGen != _structureGen)
+                {
+                    Debug.WriteLine($"[PLANE] DISCARD stale-gen bake ({bakeGen} != {_structureGen})");
+                    DisposeObject(rendered);
+                    _contentChanged = true;
+                    return;
+                }
+
                 Debug.WriteLine($"[PLANE] PUBLISH bake cover=[{coveredTop:0}..{coveredBot:0}] (pureScroll={bakeSnapshot == null})");
 
-                // Coverage set BEFORE publish so the render thread consumes a consistent plane+range pair.
+                // Coverage + generation set BEFORE publish so the render thread consumes a consistent set.
                 _preparedCoveredTop = coveredTop;
                 _preparedCoveredBot = coveredBot;
+                _preparedGen = bakeGen;
                 var stale = Interlocked.Exchange(ref _preparedPlane, rendered);
                 if (stale != null)
                 {

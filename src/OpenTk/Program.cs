@@ -89,7 +89,10 @@ namespace DrawnChatList
         private long _lastFrameTicks;
         private double _maxFrameMs;   // worst frame since last flick log
         private int _frameSamples;
-        private double _sumFrameMs; 
+        private double _sumFrameMs;
+        private int _spikeFrames;     // frames > 8ms since last flick log
+        private int _blitFrames, _directFrames; // plane blit vs live direct-draw mix
+        private int _ssStatFrames;    // frames since last SlowScrollAndCheck stats line
 
         protected override void OnRenderFrame(FrameEventArgs args)
         {
@@ -104,10 +107,18 @@ namespace DrawnChatList
             {
                 double ms = (now - _lastFrameTicks) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
                 if (ms > _maxFrameMs) _maxFrameMs = ms;
+                if (ms > 8) _spikeFrames++; // frames past ~half a 60Hz budget = perceived jerk at speed
                 _sumFrameMs += ms;
                 _frameSamples++;
             }
             _lastFrameTicks = now;
+
+            // blit vs direct-draw mix per flick (which path actually served the frame)
+            if (_scene.ChatStack != null)
+            {
+                if (_scene.ChatStack.IsCaching) _blitFrames++;
+                else _directFrames++;
+            }
 
 
             return; //uncomment for user manual testing  (comment out to run AI probes)
@@ -473,8 +484,14 @@ namespace DrawnChatList
             }
 
             _f++;
-            if (_f % 30 == 0)
-                Console.WriteLine($"[SS] p{_ssPhase} offY={offY:0} win=[{_scene.WindowStart}..{_scene.WindowEnd}] viol={_violations}");
+            if (++_ssStatFrames >= 200) // periodic path-mix stats (own counter: _f parity made %30 never hit)
+            {
+                double avgMs = _frameSamples > 0 ? _sumFrameMs / _frameSamples : 0;
+                Console.WriteLine($"[SS] p{_ssPhase} offY={offY:0} win=[{_scene.WindowStart}..{_scene.WindowEnd}] " +
+                    $"blit={_blitFrames} direct={_directFrames} spikes={_spikeFrames} avg={avgMs:0.0} MAX={_maxFrameMs:0.0} viol={_violations}");
+                _ssStatFrames = 0;
+                _maxFrameMs = 0; _sumFrameMs = 0; _frameSamples = 0; _spikeFrames = 0; _blitFrames = 0; _directFrames = 0;
+            }
 
             if (_ssPhase == 1 && (_scene.WindowStart <= 0 || offY < -20000))
             {
@@ -771,9 +788,9 @@ namespace DrawnChatList
             float vpH = s.Viewport.Pixels.Height;
             double avgMs = _frameSamples > 0 ? _sumFrameMs / _frameSamples : 0;
             Console.WriteLine(
-                $"flick{_flicks,2} {(_reversed ? "UP " : "DN ")} frameMs avg={avgMs,5:0.0} MAX={_maxFrameMs,6:0.0} " +
-                $"older={_scene.LoadOlderCalls} newer={_scene.LoadNewerCalls} trim={_scene.TrimEvents}");
-            _maxFrameMs = 0; _sumFrameMs = 0; _frameSamples = 0;
+                $"flick{_flicks,2} {(_reversed ? "UP " : "DN ")} frameMs avg={avgMs,5:0.0} MAX={_maxFrameMs,6:0.0} spikes={_spikeFrames,3} " +
+                $"blit={_blitFrames,4} direct={_directFrames,4} offY={offY,8:0.0} win=[{_scene.WindowStart}..{_scene.WindowEnd}]");
+            _maxFrameMs = 0; _sumFrameMs = 0; _frameSamples = 0; _spikeFrames = 0; _blitFrames = 0; _directFrames = 0;
         }
 
         private void Capture(string name)
