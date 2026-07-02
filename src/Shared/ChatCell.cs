@@ -20,6 +20,10 @@ namespace DrawnChatList;
 /// </summary>
 public class ChatCell : SkiaDynamicDrawnCell
 {
+    // Non-recycled chat: a rebind means the SAME message (or its shifted neighbor) — stale front pixels for
+    // 1-2 frames beat the blank blink of a hard cache destroy while the async rebake lands.
+    protected override bool DestroyCacheOnContextChange => false;
+
     private const float MaxBubbleWidth = 280f;
 
     public static readonly Color ColorIncoming = ChatTheme.Incoming;
