@@ -479,11 +479,13 @@ namespace DrawnChatList
             if (_ssPhase == 1 && (_scene.WindowStart <= 0 || offY < -20000))
             {
                 _ssPhase = 2; _ssDown = false;
-                Console.WriteLine("[SS] now slow drag BACK to msg0, watch OVERLAP...");
+                _maxFrameMs = 0; _sumFrameMs = 0; _frameSamples = 0; // phase-2-only stats (LoadNewer direction)
+                Console.WriteLine($"[SS] now slow drag BACK to msg0, watch OVERLAP... (flip at f={_f} win=[{_scene.WindowStart}..{_scene.WindowEnd}] offY={offY:0})");
             }
-            else if (_ssPhase == 2 && offY >= -2f)
+            else if (_ssPhase == 2 && offY >= -2f && _scene.WindowEnd >= 320) // present = all LoadNewer head-inserts done
             {
-                Console.WriteLine($"[SS] DONE reached msg0 offY={offY:0} violations={_violations}");
+                double avgMs = _frameSamples > 0 ? _sumFrameMs / _frameSamples : 0;
+                Console.WriteLine($"[SS] DONE reached msg0 offY={offY:0} violations={_violations} win=[{_scene.WindowStart}..{_scene.WindowEnd}] p2 frameMs avg={avgMs:0.0} MAX={_maxFrameMs:0.0}");
                 Close();
             }
         }
