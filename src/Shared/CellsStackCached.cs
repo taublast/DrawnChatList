@@ -32,6 +32,21 @@ public class CellsStackCached : CellsStack
 
     private static bool UseDoubleBuffering = true;
 
+    // Async off-thread bake draws LIVE views, so it is safe ONLY where BindableObject property storage is
+    // thread-safe. OpenTk/Net/Web heads use SharedNet BindableObject.Plain.cs which guards _values with a
+    // lock. MAUI heads (Android/iOS/MacCatalyst/Windows) use MAUI's BindableObject: a plain Dictionary the
+    // UI thread mutates (SetValue on bind/rekey/image-loaded, GetValue write-on-miss via DefaultValueCreator)
+    // WHILE the bake thread reads it => torn read / crash — the exact class of the concurrent-Dictionary
+    // crash we fixed on Net, unfixable from here because MAUI's GetValue/SetValue aren't virtual. On those
+    // heads record SYNC on the render thread instead: with warm per-cell Image caches a record just replays
+    // each cell's cache blit (≈ one direct-draw frame — plain CellsStack pays that EVERY frame), once per
+    // half-viewport drift. No regression vs the plain baseline, zero cross-thread reads.
+#if ANDROID || IOS || MACCATALYST || WINDOWS
+    private const bool AsyncBakeSafe = false;
+#else
+    private const bool AsyncBakeSafe = true;
+#endif
+
     // When true, bypass the offscreen band-plane entirely: draw per-cell Image-cached cells directly on the
     // render thread (exactly the plain CellsStack path via base.DrawDirectInternal). No off-thread bake =>
     // no concurrent access to a live view's non-thread-safe BindableObject._values (GetValue writes on a
@@ -134,6 +149,10 @@ public class CellsStackCached : CellsStack
 
             clone.Add(dst, c.Column, c.Row);
         }
+        // Drop stale View refs on the unused pool tail: after a trim shrinks the structure, entries beyond
+        // the current count would otherwise pin dead cells (and their caches) from GC indefinitely.
+        for (int j = i; j < _bakePool.Count; j++)
+            _bakePool[j].View = null;
         return clone;
     }
     
@@ -581,7 +600,7 @@ public class CellsStackCached : CellsStack
         // yet), or an ordered-scroll jump. LoadMore / trim / normal scroll NEVER sync — a render-thread record
         // on those frames IS the spike double-buffering exists to kill. They bake ASYNC and keep blitting the
         // current (whole) plane; an incomplete bake is DISCARDED (below), never swapped in as a hole.
-        bool useSync = !UseDoubleBuffering ||
+        bool useSync = !UseDoubleBuffering || !AsyncBakeSafe ||
                        (ForegroundPlane == null || orderedScroll);
 
         if (useSync)
@@ -785,6 +804,11 @@ public class CellsStackCached : CellsStack
                     }
                     DisposeObject(stale);
                 }
+
+                // Dispose may have drained _preparedPlane between our start-check and the publish above —
+                // then nobody will ever consume this plane (UpdatePlanes stops running). Drain it ourselves.
+                if (IsDisposed || IsDisposing)
+                    DisposeObject(Interlocked.Exchange(ref _preparedPlane, null));
             }
             finally
             {
@@ -805,6 +829,13 @@ public class CellsStackCached : CellsStack
 
     public override void OnDisposing()
     {
+        // Let an in-flight bake finish before tearing down what it paints from (cells, recorder). The bake's
+        // last _bakeDone.Set() happens BEFORE Wait returns, so disposing the event after a successful wait is
+        // safe. On timeout do NOT dispose — the hung bake's finally would Set() a disposed event and throw on
+        // the background thread; leaking one MRES beats that crash (its post-publish drain handles the plane).
+        if (_bakeDone.Wait(1000))
+            _bakeDone.Dispose();
+
         DisposeObject(Interlocked.Exchange(ref _preparedPlane, null));
         ForegroundPlane = null;
         _recorder?.Dispose();

@@ -49,6 +49,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tutorials", "..\DrawnUi\src
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VirtualizationHarnessDemo", "..\DrawnUi\src\Net\Samples\VirtualizationHarnessDemo\VirtualizationHarnessDemo.csproj", "{60682D46-4917-F17C-35C7-9202895DF907}"
 EndProject
+Project("{D954291E-2A0B-460D-934E-DC6B0785DB48}") = "DrawnUi.Shared", "..\DrawnUi\src\Shared\DrawnUi\DrawnUi.Shared.shproj", "{C7C09E4D-077A-4D88-B5FD-0C5AA6E56E07}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -140,6 +142,7 @@ Global
 		{F201ACD6-AEE7-ED4D-DBFA-50B781BC9609} = {72681293-EFFB-42B8-9C52-D1381D71B28F}
 		{10AF30C4-69B5-5732-1921-7D793F7CBCFA} = {72681293-EFFB-42B8-9C52-D1381D71B28F}
 		{60682D46-4917-F17C-35C7-9202895DF907} = {72681293-EFFB-42B8-9C52-D1381D71B28F}
+		{C7C09E4D-077A-4D88-B5FD-0C5AA6E56E07} = {9E06E6F0-4214-4D7B-9D29-F26B0B44E84D}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {329E3D0C-A3F7-4A3E-B61C-6B2D1BD7F708}
@@ -154,6 +157,7 @@ Global
 		..\DrawnUi\src\Shared\DrawnUi\Shared.projitems*{93e119b1-4378-87df-2dd2-a818d1e6c2a2}*SharedItemsImports = 5
 		..\DrawnUi\src\Shared\Shared.projitems*{a600fd05-5de5-e382-db79-8e53ad2fed7e}*SharedItemsImports = 5
 		..\DrawnUi\src\SharedNet\SharedNet.projitems*{c4d8f2a1-7b3e-4f9c-a8d6-5e1b9f2c8d3a}*SharedItemsImports = 13
+		..\DrawnUi\src\Shared\DrawnUi\Shared.projitems*{c7c09e4d-077a-4d88-b5fd-0c5aa6e56e07}*SharedItemsImports = 13
 		src\Shared\DrawnChatList.Shared.projitems*{d6714110-a310-b6e1-fc94-d37441470f9b}*SharedItemsImports = 5
 		..\DrawnUi\src\Shared\DrawnUi\Shared.projitems*{ed99ddb0-602d-46f9-aeef-4ad047bfce8d}*SharedItemsImports = 5
 	EndGlobalSection
