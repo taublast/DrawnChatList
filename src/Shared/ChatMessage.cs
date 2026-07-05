@@ -11,8 +11,13 @@ public enum ChatMessageType
     File
 }
 
-public sealed class ChatMessage : BindableObject
+public interface IHasGuidId {
+    public Guid Id { get; }
+}
+
+public sealed class ChatMessage : BindableObject, IHasGuidId
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public int Index { get; set; }
     public bool Outgoing { get; set; }
     public ChatMessageType Type { get; set; }
@@ -74,6 +79,22 @@ public sealed class ChatMessage : BindableObject
     /// time whether the request is still fresh enough to play.
     /// </summary>
     public long HighlightStamp
+    {
+        get;
+        set
+        {
+            if (value == field) return;
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Incoming message that arrived while the user was scrolled away from the newest end
+    /// (Telegram-style "unread"): the bound cell shows a steady highlight, the scroll-to-newest
+    /// FAB shows the count. Cleared when the user jumps to it or scrolls back to the newest end.
+    /// </summary>
+    public bool IsUnread
     {
         get;
         set

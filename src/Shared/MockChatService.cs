@@ -38,4 +38,13 @@ public sealed class MockChatService : IWindowDataSource<ChatMessage>
 
     /// <summary>Append a newly sent/received message (live). It becomes part of future range fetches.</summary>
     public void Append(ChatMessage message) => _all.Add(message);
+
+    public void Remove(Guid id)
+    {
+        var found = _all.FirstOrDefault(x => x.Id == id);
+        if (found != null)
+        {
+            _all.Remove(found);
+        }
+    }
 }

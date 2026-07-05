@@ -31,6 +31,7 @@ public sealed partial class ChatPage : BindableObject, IChatCellActions
     }
 
     public int ResidentCount => _items.Count;
+    public string EditorText { get => Editor?.Text; set => Editor.Text = value; }
     public int WindowStart => _windowStart;
     public int WindowEnd => _windowEnd;
 
@@ -66,6 +67,10 @@ public sealed partial class ChatPage : BindableObject, IChatCellActions
             var c = e.Control as SkiaControl;
             LastChildIndex = c?.ContextIndex ?? -2;
         };
+
+        // DESKTOP KEYBOARD SIM: desktop has no soft keyboard, so fake the reported size on editor
+        // focus — exercises the same mobile path (spacer grows, scroll shrinks, keyboard adapt).
+        Editor.FocusChanged += (s, focused) => KeyboardSize = focused ? 260 : 0;
 
         return canvas;
     }

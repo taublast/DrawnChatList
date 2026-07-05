@@ -10,17 +10,21 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(MSBuildThisFileDirectory)AppMessagesStack.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)AppPicker.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ChatCell.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ChatMessage.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)CellsStackCached.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)CellsStack.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ChatPage.Svg.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ChatPage.Shared.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)ChatPage.AutoTest.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)ChatScroll.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ChatTheme.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)DiagRow.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)DiagStack.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)IChatCellActions.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)IncomingBubbleSign.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)LimitedSource.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)MockChatApi.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)MockChatService.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)OutcomingBubbleSign.cs" />

@@ -13,4 +13,6 @@ public interface IChatCellActions
 
     /// <summary>Tap a quote: jump to the quoted message, even outside the resident window.</summary>
     void ScrollToMessage(ChatMessage msg);
+
+    void ShowMessageOptions(ChatMessage msg);
 }

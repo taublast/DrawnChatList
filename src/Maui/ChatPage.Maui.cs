@@ -3,6 +3,7 @@ using DrawnUi.Controls;
 using DrawnUi.Draw;
 using DrawnUi.Views;
 using System.Diagnostics;
+using AppoMobi.Gestures;
 
 namespace DrawnChatList;
 
@@ -24,8 +25,10 @@ public partial class ChatPage : BasePageReloadable, IChatCellActions
         // our own drawn navbar replaces the MAUI Shell one
         Shell.SetNavBarIsVisible(this, false);
 
-        _api.ReplyReceived += (s, text) => ReceiveMessage(text); //already on UI thread
-        _api.Typing += (s, typing) => SetBotTyping(typing); //already on UI thread
+        _api.ReplyReceived += (s, text) => ReceiveMessage(text);  
+        _api.Typing += (s, typing) => SetBotTyping(typing); 
+
+        TouchEffect.LongPressTimeMsDefault = 1000;
     }
 
 

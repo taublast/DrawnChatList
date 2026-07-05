@@ -20,8 +20,11 @@ namespace DrawnChatList;
 /// </summary>
 public class ChatCell : SkiaDynamicDrawnCell
 {
-    // Non-recycled chat: a rebind means the SAME message (or its shifted neighbor) — stale front pixels for
-    // 1-2 frames beat the blank blink of a hard cache destroy while the async rebake lands.
+    // Non-recycled chat: a rebind means the SAME message (or its shifted neighbor) — stale front
+    // pixels for 1-2 frames beat a blank blink. NOTE: switching this to true crashed on-device
+    // (native SIGSEGV on GLThread, null deref in Skia): the destroy disposes the cache surface on
+    // the mutating thread while the render thread can still be blitting it. If skeleton-on-rebind
+    // is ever wanted, the destroy must be deferred through the render thread, not immediate.
     protected override bool DestroyCacheOnContextChange => false;
 
     private const float MaxBubbleWidth = 280f;
@@ -69,6 +72,7 @@ public class ChatCell : SkiaDynamicDrawnCell
     private readonly SkiaShape _highlight;
     private long _playedHighlightStamp;
     private CancellationTokenSource _highlightCts;
+    private bool _flashActive; // a jump-flash animation currently owns _highlight
 
     #endregion
 
@@ -190,6 +194,7 @@ public class ChatCell : SkiaDynamicDrawnCell
                                                         {
                                                             //LoadSourceOnFirstDraw = false, //soft preload
                                                             IsVisible = false,
+                                                            RescalingQuality = FilterQuality.None,
                                                             //UseCache = SkiaCacheType.ImageDoubleBuffered, //avoid spikes when updating
                                                             Aspect = TransformAspect.AspectCover,
                                                             BackgroundColor = Colors.DimGray,
@@ -325,7 +330,7 @@ public class ChatCell : SkiaDynamicDrawnCell
                             if (me.BindingContext is ChatMessage msg
                                 && Parent?.BindingContext is IChatCellActions actions)
                             {
-                                actions.ReplyToMessage(msg);
+                                actions.ShowMessageOptions(msg);
                             }
                         })
                         .OnTapped(me =>
@@ -355,6 +360,89 @@ public class ChatCell : SkiaDynamicDrawnCell
 
         _label.LinkTapped += (s, url) => Debug.WriteLine($"[CHAT] link tapped: {url}");
     }
+
+    #region SKELETON PLACEHOLDER
+
+    // Cold ImageDoubleBuffered cell: the FIRST cache is baked in background, and the base
+    // DrawPlaceholder paints NOTHING — at fling speed that's a visible hole in the chat.
+    // Draw a cheap telegram-style skeleton bubble instead (one rounded rect, ~0.1ms): the slot
+    // reads as "message loading", never as a gap. Replaced by real pixels the frame the bake lands.
+    // Lightened versions of the bubble colors: the raw bubble tints are near-invisible against the
+    // chat background (verified on-device), a skeleton must READ as a loading bubble.
+    private static readonly SkiaSharp.SKPaint PaintSkeletonIn = new()
+    {
+        Color = new SkiaSharp.SKColor(0x2A, 0x3B, 0x4D), IsAntialias = true,
+    };
+
+    private static readonly SkiaSharp.SKPaint PaintSkeletonOut = new()
+    {
+        Color = new SkiaSharp.SKColor(0x35, 0x60, 0x8C), IsAntialias = true,
+    };
+
+    private static readonly SkiaSharp.SKPaint PaintSkeletonNeutral = new()
+    {
+        Color = new SkiaSharp.SKColor(0x2A, 0x38, 0x46), IsAntialias = true,
+    };
+
+    public override void DrawPlaceholder(DrawingContext ctx)
+    {
+        var dest = ctx.Destination;
+        if (dest.Width <= 1 || dest.Height <= 1)
+            return;
+
+        // The placeholder can draw BEFORE the cell is bound (pool warm-up) — direction is unknowable
+        // then, and guessing painted every skeleton as "incoming". Bound => real side+color; unbound
+        // => neutral centered pill.
+        var msg = BindingContext as ChatMessage;
+        float scale = ctx.Scale;
+
+        float padV = 3f * scale;
+        float padH = 12f * scale;
+
+        // By placeholder time the cell has already been MEASURED (measure precedes draw) — use the
+        // real bubble size instead of guessing a fixed fraction, so the skeleton matches the bubble
+        // that will replace it. Fallback heuristic only for a not-yet-measured bubble.
+        float w, h;
+        var bubblePx = _bubble?.MeasuredSize.Pixels ?? default;
+        if (bubblePx.Width > 1 && bubblePx.Height > 1)
+        {
+            w = Math.Min(bubblePx.Width, dest.Width - padH * 2f);
+            h = Math.Min(bubblePx.Height, dest.Height - padV * 2f);
+        }
+        else
+        {
+            w = Math.Min(MaxBubbleWidth * scale * 0.72f, dest.Width * 0.62f);
+            h = Math.Max(dest.Height - padV * 2f, 10f * scale);
+        }
+
+        float left;
+        SkiaSharp.SKPaint paint;
+        if (msg == null)
+        {
+            left = dest.Left + (dest.Width - w) / 2f;
+            paint = PaintSkeletonNeutral;
+        }
+        else if (msg.Outgoing)
+        {
+            // MIRRORED on purpose: the placeholder paints in the cache-record pass, where the cell's
+            // own 180° rotation is NOT applied (only the scroll's flip is) — verified on-device:
+            // aligning "End" here landed outgoing skeletons on the LEFT. So outgoing = Left in this
+            // space => appears right on screen, like the real bubble.
+            left = dest.Left + padH;
+            paint = PaintSkeletonOut;
+        }
+        else
+        {
+            left = dest.Right - padH - w;
+            paint = PaintSkeletonIn;
+        }
+
+        var rect = new SkiaSharp.SKRect(left, dest.Top + padV, left + w, dest.Top + padV + h);
+        float r = 14f * scale;
+        ctx.Context.Canvas.DrawRoundRect(rect, r, r, paint);
+    }
+
+    #endregion
 
     protected virtual void UpdateContent(ChatMessage msg)
     {
@@ -417,6 +505,7 @@ public class ChatCell : SkiaDynamicDrawnCell
 
         UpdateContent(msg);
         MaybeHighlight(msg);
+        ApplyUnreadHighlight(msg);
     }
 
     /// <summary>
@@ -453,6 +542,7 @@ public class ChatCell : SkiaDynamicDrawnCell
         _highlightCts?.Cancel();
         _highlightCts?.Dispose();
         var cts = _highlightCts = new CancellationTokenSource();
+        _flashActive = true;
 
         try
         {
@@ -469,6 +559,25 @@ public class ChatCell : SkiaDynamicDrawnCell
         {
             // recycled / re-triggered mid-flash: the new request owns the overlay
         }
+        finally
+        {
+            _flashActive = false;
+            if (Context is ChatMessage msg)
+                ApplyUnreadHighlight(msg); // restore/clear the steady unread tint the flash covered
+        }
+    }
+
+    /// <summary>
+    /// Steady (non-animated) unread tint, reusing the jump-flash band. No-op while a jump-flash
+    /// animation is currently playing on it (that owns the overlay until it finishes).
+    /// </summary>
+    private void ApplyUnreadHighlight(ChatMessage msg)
+    {
+        if (_flashActive)
+            return;
+
+        _highlight.Opacity = HighlightPeakOpacity;
+        _highlight.IsVisible = msg.IsUnread;
     }
 
 
@@ -526,6 +635,11 @@ public class ChatCell : SkiaDynamicDrawnCell
         {
             if (Context is ChatMessage msg)
                 MaybeHighlight(msg);
+        }
+        else if (e.PropertyName is nameof(ChatMessage.IsUnread))
+        {
+            if (Context is ChatMessage msg)
+                ApplyUnreadHighlight(msg);
         }
 
         base.ContextPropertyChanged(sender, e);

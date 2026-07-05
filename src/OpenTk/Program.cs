@@ -123,6 +123,9 @@ namespace DrawnChatList
 
             return; //uncomment for user manual testing  (comment out to run AI probes)
 
+            //KeyboardTest();
+            //return;
+
             //OffsetTest();
             //return;
 
@@ -169,6 +172,253 @@ namespace DrawnChatList
             {
                 Console.WriteLine($"done. violations={_violations} older={_scene.LoadOlderCalls} newer={_scene.LoadNewerCalls} trim={_scene.TrimEvents}");
                 Close();
+            }
+        }
+
+        // ── KEYBOARD PROBE (TEMP) ────────────────────────────────────────────────────────────
+        // Simulates the mobile soft keyboard (KeyboardSize=260 -> spacer grows, scroll shrinks) and
+        // verifies: (1) the cellstack plane is NOT re-recorded/remeasured storm-style on toggle,
+        // (2) the newest-side anchor cell + offset stay stable — at present AND scrolled into history.
+        private int _kbStage = -1;
+        private int _kbWait;
+        private int _kbBaseRecords;
+        private int _kbAnchorFirst;
+        private float _kbAnchorOffY;
+        private float _kbLastContentH;
+        private int _kbFlicks;
+        private int _kbCountBeforeSend;
+
+        private void LogKb(string label)
+        {
+            var s = _scene.MainScroll;
+            var l = _scene.ChatStack;
+            Console.WriteLine($"[KB {label}] offY={s.ViewportOffsetY:0.0} vis=[{l.FirstVisibleIndex}..{l.LastVisibleIndex}] " +
+                $"contentH={s.ContentSize.Pixels.Height:0} vpH={s.Viewport.Pixels.Height:0} " +
+                $"records+={PlaneRecordCounter.Records - _kbBaseRecords} maxMs={_maxFrameMs:0.0}");
+        }
+
+        private void KeyboardTest()
+        {
+            if (_kbStage == -1)
+            {
+                System.Diagnostics.Trace.Listeners.Add(new PlaneRecordCounter());
+                _kbStage = 0;
+            }
+
+            switch (_kbStage)
+            {
+                case 0: // wait for the initial window + FULL background measurement to settle
+                    // (contentH keeps growing while batches land; stable for 120 frames = done)
+                    {
+                        float ch = _scene.MainScroll?.ContentSize.Pixels.Height ?? 0;
+                        if (ch > 0 && Math.Abs(ch - _kbLastContentH) < 1f)
+                        {
+                            if (++_kbWait >= 120)
+                            {
+                                _kbWait = 0;
+                                _kbBaseRecords = PlaneRecordCounter.Records;
+                                _maxFrameMs = 0;
+                                PlaneRecordCounter.Echo = true;
+                                LogKb("baseline start");
+                                _kbStage = 1;
+                            }
+                        }
+                        else
+                        {
+                            _kbWait = 0;
+                            _kbLastContentH = ch;
+                        }
+                    }
+                    break;
+
+                case 1: // idle baseline (how many records does plain idling produce?)
+                    if (++_kbWait >= 60)
+                    {
+                        LogKb("baseline end");
+                        Capture("kb-before.png");
+                        _kbAnchorFirst = _scene.ChatStack.FirstVisibleIndex;
+                        _kbAnchorOffY = _scene.MainScroll.ViewportOffsetY;
+                        _kbBaseRecords = PlaneRecordCounter.Records;
+                        _maxFrameMs = 0;
+                        _scene.KeyboardSize = 260;
+                        Console.WriteLine(">>> KB ON (at newest)");
+                        _kbWait = 0;
+                        _kbStage = 2;
+                    }
+                    break;
+
+                case 2:
+                    if (++_kbWait >= 60)
+                    {
+                        LogKb("kb-on newest");
+                        Console.WriteLine($"    anchor first {_kbAnchorFirst} -> {_scene.ChatStack.FirstVisibleIndex}, " +
+                            $"offY {_kbAnchorOffY:0.0} -> {_scene.MainScroll.ViewportOffsetY:0.0}");
+                        Capture("kb-open.png");
+                        _kbBaseRecords = PlaneRecordCounter.Records;
+                        _maxFrameMs = 0;
+                        _scene.KeyboardSize = 0;
+                        Console.WriteLine(">>> KB OFF");
+                        _kbWait = 0;
+                        _kbStage = 3;
+                    }
+                    break;
+
+                case 3:
+                    if (++_kbWait >= 60)
+                    {
+                        LogKb("kb-off newest");
+                        _kbWait = 0;
+                        _kbFlicks = 0;
+                        _kbStage = 7; // drag into history first (ScrollToIndex can't reach unmeasured cells)
+                    }
+                    break;
+
+                case 7: // drag-flick into history (real gesture => background measure + LoadMore run).
+                    // Inverted chat: drag DOWN = into history (drag up overscrolls the newest edge).
+                    if (QuickFlick(ClientSize.Y * 0.25f, ClientSize.Y * 0.75f))
+                    {
+                        if (++_kbFlicks >= 4)
+                        {
+                            _kbWait = 0;
+                            _kbStage = 4;
+                        }
+                    }
+                    break;
+
+                case 4: // settle after the drags (+ any LoadMore they fired + background measure)
+                    if (++_kbWait >= 400)
+                    {
+                        _kbAnchorFirst = _scene.ChatStack.FirstVisibleIndex;
+                        _kbAnchorOffY = _scene.MainScroll.ViewportOffsetY;
+                        _kbBaseRecords = PlaneRecordCounter.Records;
+                        _maxFrameMs = 0;
+                        LogKb("history baseline");
+                        _scene.KeyboardSize = 260;
+                        Console.WriteLine(">>> KB ON (history)");
+                        _kbWait = 0;
+                        _kbStage = 5;
+                    }
+                    break;
+
+                case 5:
+                    if (++_kbWait >= 60)
+                    {
+                        LogKb("kb-on history");
+                        Console.WriteLine($"    anchor first {_kbAnchorFirst} -> {_scene.ChatStack.FirstVisibleIndex}, " +
+                            $"offY {_kbAnchorOffY:0.0} -> {_scene.MainScroll.ViewportOffsetY:0.0}");
+                        _kbBaseRecords = PlaneRecordCounter.Records;
+                        _maxFrameMs = 0;
+                        _scene.KeyboardSize = 0;
+                        Console.WriteLine(">>> KB OFF (history)");
+                        _kbWait = 0;
+                        _kbStage = 6;
+                    }
+                    break;
+
+                case 6:
+                    if (++_kbWait >= 60)
+                    {
+                        LogKb("kb-off history");
+                        _kbWait = 0;
+                        _kbStage = 8;
+                    }
+                    break;
+
+                // ── end-to-end sim: real editor focus drives KeyboardSize (FocusChanged hook) ──
+                case 8: // tap the editor in the send bar
+                    if (QuickTap(ClientSize.X * 0.5f, ClientSize.Y - 34))
+                        _kbWait = 0;
+                    else
+                        break;
+                    _kbStage = 9;
+                    break;
+
+                case 9:
+                    if (++_kbWait >= 40)
+                    {
+                        Console.WriteLine($"[KB focus-tap] KeyboardSize={_scene.KeyboardSize} (expect 260)");
+                        LogKb("editor focused");
+                        Capture("kb-editor-focused.png");
+                        _kbWait = 0;
+                        _kbStage = 12;
+                    }
+                    break;
+
+                // ── SEND-BUTTON scenario: focused editor + text, tap the panel SEND button.
+                // Expected: message sent (count grows), editor cleared, keyboard STAYS (focus kept).
+                case 12:
+                    _scene.EditorText = "probe message";
+                    _kbCountBeforeSend = _scene.ResidentCount;
+                    _kbWait = 0;
+                    _kbStage = 13;
+                    break;
+
+                case 13: // tap SEND (right edge of the send bar, raised above the 260 keyboard band)
+                    if (QuickTap(ClientSize.X - 30, ClientSize.Y - 260 - 34))
+                        _kbWait = 0;
+                    else
+                        break;
+                    _kbStage = 14;
+                    break;
+
+                case 14:
+                    if (++_kbWait >= 60)
+                    {
+                        bool sent = _scene.ResidentCount > _kbCountBeforeSend;
+                        Console.WriteLine($"[KB send-tap] sent={sent} (count {_kbCountBeforeSend}->{_scene.ResidentCount}) " +
+                            $"editorText='{_scene.EditorText}' (expect empty) KeyboardSize={_scene.KeyboardSize} (expect 260 = keyboard stays)");
+                        Capture("kb-after-send.png");
+                        _kbWait = 0;
+                        _kbStage = 10;
+                    }
+                    break;
+
+                case 10: // tap the chat area to unfocus
+                    if (QuickTap(ClientSize.X * 0.5f, 200))
+                        _kbWait = 0;
+                    else
+                        break;
+                    _kbStage = 11;
+                    break;
+
+                case 11:
+                    if (++_kbWait >= 40)
+                    {
+                        Console.WriteLine($"[KB unfocus-tap] KeyboardSize={_scene.KeyboardSize} (expect 0)");
+                        LogKb("editor unfocused");
+                        Capture("kb-final.png");
+                        _kbWait = 0;
+                        _kbStage = 15;
+                    }
+                    break;
+
+                case 15: // long settle then re-capture: stale framebuffer vs stale layout
+                    if (++_kbWait >= 150)
+                    {
+                        LogKb("late settle");
+                        Capture("kb-final2.png");
+                        Console.WriteLine("done.");
+                        Close();
+                    }
+                    break;
+            }
+        }
+
+        // TEMP PROBE: counts plane re-records via the [PLANE] Debug lines from CellsStackCached,
+        // and mirrors invalidation-source lines to the console.
+        private sealed class PlaneRecordCounter : System.Diagnostics.TraceListener
+        {
+            public static volatile int Records;
+            public static volatile bool Echo;
+            public override void Write(string message) { }
+            public override void WriteLine(string message)
+            {
+                if (message == null) return;
+                
+                //if (message.Contains("[PLANE] SYNC record")) Records++; //commented out inside stack control, no such debug now
+                
+                if (Echo && message.Contains("[PLANE] SYNC"))
+                    Console.WriteLine("    " + message);
             }
         }
 
@@ -453,6 +703,7 @@ namespace DrawnChatList
         private int _ssPhase;
         private bool _ssDown;
         private float _ssY;
+
         private void SlowScrollAndCheck()
         {
             float vpH = ClientSize.Y, cx = ClientSize.X / 2f;

@@ -9,8 +9,6 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 		README.md = README.md
 	EndProjectSection
 EndProject
-Project("{D954291E-2A0B-460D-934E-DC6B0785DB48}") = "DrawnUi.Shared", "..\DrawnUi\src\Shared\DrawnUi.Shared.shproj", "{83974207-9636-48DD-BDB3-98EDECBB1107}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DrawnUi.Maui", "..\DrawnUi\src\Maui\DrawnUi\DrawnUi.Maui.csproj", "{93E119B1-4378-87DF-2DD2-A818D1E6C2A2}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DrawnUi.Blazor", "..\DrawnUi\src\Blazor\DrawnUi\DrawnUi.Blazor.csproj", "{A600FD05-5DE5-E382-DB79-8E53AD2FED7E}"
@@ -35,8 +33,6 @@ Project("{D954291E-2A0B-460D-934E-DC6B0785DB48}") = "DrawnChatList.Shared", "src
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DrawnChatList.OpenTk", "src\OpenTk\DrawnChatList.OpenTk.csproj", "{21B2D714-ECBD-64BA-B96E-717C047572A7}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DrawnChatList.Blazor", "src\Web\DrawnChatList.Blazor.csproj", "{07EB9E24-E634-760A-3515-C6B93B39EACC}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FastRepro", "..\DrawnUi\src\Maui\Samples\FastRepro\FastRepro.csproj", "{FB44CA0D-B06C-AD8C-819B-8BDE9F38C854}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlazorSandbox", "..\DrawnUi\src\Blazor\Samples\BlazorSandbox\BlazorSandbox.csproj", "{A13410A7-0354-E08E-7284-F989C5C89609}"
@@ -50,6 +46,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VirtualizationHarnessDemo", "..\DrawnUi\src\Net\Samples\VirtualizationHarnessDemo\VirtualizationHarnessDemo.csproj", "{60682D46-4917-F17C-35C7-9202895DF907}"
 EndProject
 Project("{D954291E-2A0B-460D-934E-DC6B0785DB48}") = "DrawnUi.Shared", "..\DrawnUi\src\Shared\DrawnUi\DrawnUi.Shared.shproj", "{C7C09E4D-077A-4D88-B5FD-0C5AA6E56E07}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DrawnChatList.Blazor", "src\Blazor\DrawnChatList.Blazor.csproj", "{C43704B9-2464-1240-D799-52CA51A7EB28}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -90,10 +88,6 @@ Global
 		{21B2D714-ECBD-64BA-B96E-717C047572A7}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{21B2D714-ECBD-64BA-B96E-717C047572A7}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{21B2D714-ECBD-64BA-B96E-717C047572A7}.Release|Any CPU.Build.0 = Release|Any CPU
-		{07EB9E24-E634-760A-3515-C6B93B39EACC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{07EB9E24-E634-760A-3515-C6B93B39EACC}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{07EB9E24-E634-760A-3515-C6B93B39EACC}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{07EB9E24-E634-760A-3515-C6B93B39EACC}.Release|Any CPU.Build.0 = Release|Any CPU
 		{FB44CA0D-B06C-AD8C-819B-8BDE9F38C854}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{FB44CA0D-B06C-AD8C-819B-8BDE9F38C854}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{FB44CA0D-B06C-AD8C-819B-8BDE9F38C854}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -119,12 +113,15 @@ Global
 		{60682D46-4917-F17C-35C7-9202895DF907}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{60682D46-4917-F17C-35C7-9202895DF907}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{60682D46-4917-F17C-35C7-9202895DF907}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C43704B9-2464-1240-D799-52CA51A7EB28}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C43704B9-2464-1240-D799-52CA51A7EB28}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C43704B9-2464-1240-D799-52CA51A7EB28}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C43704B9-2464-1240-D799-52CA51A7EB28}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
-		{83974207-9636-48DD-BDB3-98EDECBB1107} = {9E06E6F0-4214-4D7B-9D29-F26B0B44E84D}
 		{93E119B1-4378-87DF-2DD2-A818D1E6C2A2} = {9E06E6F0-4214-4D7B-9D29-F26B0B44E84D}
 		{A600FD05-5DE5-E382-DB79-8E53AD2FED7E} = {9E06E6F0-4214-4D7B-9D29-F26B0B44E84D}
 		{C4D8F2A1-7B3E-4F9C-A8D6-5E1B9F2C8D3A} = {9E06E6F0-4214-4D7B-9D29-F26B0B44E84D}
@@ -135,7 +132,6 @@ Global
 		{D6714110-A310-B6E1-FC94-D37441470F9B} = {72681293-EFFB-42B8-9C52-D1381D71B28F}
 		{60EF8DBF-E427-472C-9BB6-8D028E4B7900} = {72681293-EFFB-42B8-9C52-D1381D71B28F}
 		{21B2D714-ECBD-64BA-B96E-717C047572A7} = {72681293-EFFB-42B8-9C52-D1381D71B28F}
-		{07EB9E24-E634-760A-3515-C6B93B39EACC} = {72681293-EFFB-42B8-9C52-D1381D71B28F}
 		{FB44CA0D-B06C-AD8C-819B-8BDE9F38C854} = {72681293-EFFB-42B8-9C52-D1381D71B28F}
 		{A13410A7-0354-E08E-7284-F989C5C89609} = {72681293-EFFB-42B8-9C52-D1381D71B28F}
 		{04F4F366-70B0-9E9D-81AD-469F664A1769} = {9E06E6F0-4214-4D7B-9D29-F26B0B44E84D}
@@ -143,19 +139,19 @@ Global
 		{10AF30C4-69B5-5732-1921-7D793F7CBCFA} = {72681293-EFFB-42B8-9C52-D1381D71B28F}
 		{60682D46-4917-F17C-35C7-9202895DF907} = {72681293-EFFB-42B8-9C52-D1381D71B28F}
 		{C7C09E4D-077A-4D88-B5FD-0C5AA6E56E07} = {9E06E6F0-4214-4D7B-9D29-F26B0B44E84D}
+		{C43704B9-2464-1240-D799-52CA51A7EB28} = {72681293-EFFB-42B8-9C52-D1381D71B28F}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {329E3D0C-A3F7-4A3E-B61C-6B2D1BD7F708}
 	EndGlobalSection
 	GlobalSection(SharedMSBuildProjectFiles) = preSolution
-		src\Shared\DrawnChatList.Shared.projitems*{07eb9e24-e634-760a-3515-c6b93b39eacc}*SharedItemsImports = 5
 		src\Shared\DrawnChatList.Shared.projitems*{21b2d714-ecbd-64ba-b96e-717c047572a7}*SharedItemsImports = 5
 		..\DrawnUi\src\Shared\DrawnUi\Shared.projitems*{51f7ec60-4642-3a6f-6c99-f6f62233c374}*SharedItemsImports = 5
 		src\Shared\DrawnChatList.Shared.projitems*{60682d46-4917-f17c-35c7-9202895df907}*SharedItemsImports = 5
 		src\Shared\DrawnChatList.Shared.projitems*{60ef8dbf-e427-472c-9bb6-8d028e4b7900}*SharedItemsImports = 13
-		..\DrawnUi\src\Shared\Shared.projitems*{83974207-9636-48dd-bdb3-98edecbb1107}*SharedItemsImports = 13
 		..\DrawnUi\src\Shared\DrawnUi\Shared.projitems*{93e119b1-4378-87df-2dd2-a818d1e6c2a2}*SharedItemsImports = 5
-		..\DrawnUi\src\Shared\Shared.projitems*{a600fd05-5de5-e382-db79-8e53ad2fed7e}*SharedItemsImports = 5
+		..\DrawnUi\src\Shared\DrawnUi\Shared.projitems*{a600fd05-5de5-e382-db79-8e53ad2fed7e}*SharedItemsImports = 5
+		src\Shared\DrawnChatList.Shared.projitems*{c43704b9-2464-1240-d799-52ca51a7eb28}*SharedItemsImports = 5
 		..\DrawnUi\src\SharedNet\SharedNet.projitems*{c4d8f2a1-7b3e-4f9c-a8d6-5e1b9f2c8d3a}*SharedItemsImports = 13
 		..\DrawnUi\src\Shared\DrawnUi\Shared.projitems*{c7c09e4d-077a-4d88-b5fd-0c5aa6e56e07}*SharedItemsImports = 13
 		src\Shared\DrawnChatList.Shared.projitems*{d6714110-a310-b6e1-fc94-d37441470f9b}*SharedItemsImports = 5

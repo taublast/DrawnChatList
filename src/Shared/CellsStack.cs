@@ -24,5 +24,6 @@ public class CellsStack : SkiaStack
     }
 
  
+    public bool IsCaching = false;
 
 }

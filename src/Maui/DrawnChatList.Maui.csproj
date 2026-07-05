@@ -83,4 +83,11 @@
 
 	<Import Project="..\Shared\DrawnChatList.Shared.projitems" Label="Shared" />
 
+	<ItemGroup>
+		<!-- Bigger SGen nursery: chat scrolling allocates ~13MB/s on the render path; the default
+		     ~4MB nursery caused a bridge GC every ~300ms during flings (measured: 48 GCs / 16 swipes,
+		     visible as periodic frame drops). 64MB trades heap headroom for ~4x fewer collections.
+		     Long-term fix is reducing per-frame allocations in the draw path. -->
+		<AndroidEnvironment Include="Platforms\Android\environment.txt" />
+	</ItemGroup>
 </Project>
