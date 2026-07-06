@@ -11,9 +11,16 @@ namespace DrawnChatList;
 public partial class ChatPage
 {
     /// <summary>
-    /// Normally should be provided by API
+    /// Normally should be provided by API.
+    /// Also we should be downloading async and serving from local DB.
+    /// As this is a fast proto need to work on web more a bit later due to single-thread limits there
+    /// as current implementation was background work-focused
     /// </summary>
+#if BROWSER || WEB
+    private const int TotalItems = 20;
+#else
     private const int TotalItems = 322;
+#endif     
 
     /// <summary>
     /// How many items to load while scrolling into not-yet loaded area (one LoadMore fetch),
@@ -23,14 +30,8 @@ public partial class ChatPage
     /// messages, max 300) when one screen fits more than ~14 messages (desktop/Blazor windows),
     /// so LoadMore commits stay rare per scrolled distance.
     /// </summary>
-    private const int LoadBatch = 20;
+    private const int LoadBatch = 50;
 
-    /// <summary>
-    /// Master switch for the memory window. True = keep only a bounded slice of the history
-    /// resident: every LoadMore that grows one end trims the opposite end back to the cap.
-    /// False = the window only grows (whole history can end up resident) — debug/comparison only.
-    /// </summary>
-    private const bool LimitMemoryWindow = true;
 
     /// <summary>
     /// Resident cap: how many messages stay materialized at rest. Tuned for a PHONE viewport.
@@ -43,28 +44,9 @@ public partial class ChatPage
     /// </summary>
     private const int MaxItemsInMemory = 200;
 
-    // Cells will be created for every message withing the limited window
-    private const bool RecyclingTemplates = false;
+    private readonly LimitedSource _limitedSource = new(LoadBatch*2, MaxItemsInMemory);
 
-    /// <summary>
-    /// Template pool ceiling used ONLY when RecyclingTemplates=true: a small pool of reused
-    /// cells (~2-3 screens worth) that rebind while scrolling. NOT used in the current
-    /// RecyclingTemplates=false setup — there the pool must hold EVERY resident item plus one
-    /// untrimmed batch, so it is sized MaxItemsInMemory + LoadBatch at startup and re-derived
-    /// as cap + batch by AutoTuneWindow() (an undersized pool makes cell preparation evict
-    /// in-use cells — endless rebind churn, visibly jaggy scroll).
-    /// </summary>
-    private const int PoolCells = 64;
-
-    // Windowed source, INVERTED (Items[i] == All[WindowEnd - 1 - i]). All window/paging/jump logic
-    // lives in the reusable WindowedSource<T>; the page only owns UI (cells, FABs, highlight, theme).
-    private readonly LimitedSource _limitedSource = new(LoadBatch, MaxItemsInMemory, LimitMemoryWindow);
-
-    // Simulated remote API (the message history lives here, not in memory locally).
-    // Normally in a chat app we would load data decoupled from UI, store in local DB and
-    // serve to UI from there with close to zero latency, we don't do this here..
-    private const int RemoteLatencyMs = 20;
-
+    private const int RemoteLatencyMs = 10;
 
     private MockChatService _service;
 
@@ -92,7 +74,7 @@ public partial class ChatPage
     };
 
     Canvas Canvas;
-    public AppMessagesStack ChatStack;
+    public ChatMessagesStack ChatStack;
     public SkiaScroll MainScroll;
     SkiaEditor Editor;
     SkiaLayer FullscreenOverlay;
@@ -132,14 +114,9 @@ public partial class ChatPage
                 new SkiaStack
                 {
                     Spacing = 0,
-                    HorizontalOptions = LayoutOptions.Fill,
-                    //VerticalOptions = LayoutOptions.Fill,
                     Children =
                     {
-                        // NAVBAR: drawn replacement for the MAUI Shell bar (hidden in ctor) —
-                        // animated gif avatar + bot name + live "typing…" status. CanBeFocused=true
-                        // makes it accept framework focus on tap (see SkiaControl.CanBeFocused) so
-                        // tapping it dismisses the keyboard like tapping a message does.
+                        // NAVBAR
                         new SkiaLayout
                         {
                             CanBeFocused = true,
@@ -163,7 +140,6 @@ public partial class ChatPage
                                     VerticalOptions = LayoutOptions.Center,
                                     Children =
                                     {
-                                        // banana gif, switch back anytime:
                                         //new SkiaGif
                                         //{
                                         //    Source = "Images/banana.gif",
@@ -174,7 +150,7 @@ public partial class ChatPage
 
                                         new SkiaImage
                                         {
-                                            Source = "https://i.pravatar.cc/150?img=12",
+                                            Source = "Images/avatar.jpg",
                                             Aspect = TransformAspect.AspectCover,
                                             HorizontalOptions = LayoutOptions.Fill,
                                             VerticalOptions = LayoutOptions.Fill,
@@ -246,24 +222,20 @@ public partial class ChatPage
                                     // top trigger = visually scrolling DOWN = reload trimmed newer part
                                     LoadMoreTopCommand = new Command(_limitedSource.LoadNewer),
 
-                                    Content = new AppMessagesStack
+                                    Content = new ChatMessagesStack
                                     {
-                                        BackgroundMeasurementBatchSize = LoadBatch,
-                                        
-                                        //ReserveTemplates = MaxItemsInMemory + LoadBatch,
-                                        ItemTemplatePoolSize = RecyclingTemplates ? PoolCells : MaxItemsInMemory + LoadBatch + 5, //prefill
-                                        
-                                        ItemTemplateType = typeof(ChatCell),
-                                        ItemsSource = _limitedSource.Items,
-                                        RecyclingTemplate = RecyclingTemplates ? RecyclingTemplate.Enabled : RecyclingTemplate.Disabled,
-                                        // MeasureVisible activates the prepared-views pipeline: cells are
-                                        // bound+measured off-thread ahead of scrolling; the render thread NEVER
-                                        // measures a cell (kills fling spikes), unprepared cells show their
-                                        // skeleton for a frame or two instead.
-                                        MeasureItemsStrategy = MeasuringStrategy.MeasureVisible,
-
                                         Spacing = 4,
                                         Padding = new Thickness(0, 8),
+
+                                        ItemTemplateType = typeof(ChatCell),
+                                        ItemsSource = _limitedSource.Items,
+#if BROWSER || WEB
+                                        BackgroundMeasurementBatchSize = 5,
+#else
+                                        BackgroundMeasurementBatchSize = LoadBatch,
+                                        ItemTemplatePoolSize = MaxItemsInMemory + LoadBatch + 5, //prefill
+#endif
+
                                     }.Assign(out ChatStack),
                                 }.Assign(out MainScroll),
 
@@ -561,8 +533,8 @@ public partial class ChatPage
                 // OnWindowLoadingChanged: top = history, bottom = newer, center = long jump.
                 new SkiaShape
                 {
-                    Type = ShapeType.Circle,
                     IsVisible = false,
+                    Type = ShapeType.Circle,
                     WidthRequest = 40,
                     LockRatio = 1,
                     BackgroundColor = Color.Parse("#F217212B"),
@@ -574,7 +546,7 @@ public partial class ChatPage
                     {
                         new SkiaLottie
                         {
-                            AutoPlay = false,
+                            AutoPlay = true,
                             Repeat = -1,
                             Source = "Lottie/iosloader.json",
                             ColorTint = ChatTheme.AccentBright,
@@ -673,7 +645,13 @@ public partial class ChatPage
         // scroll events, so it must ALSO re-evaluate when measurement progresses (batch applied to
         // the structure), or it never clears and the user is never told the limit moved. Raised on
         // the render thread — marshal.
-        ChatStack.MeasurementApplied += () => MainThread.BeginInvokeOnMainThread(UpdateFrontierSpinner);
+        ChatStack.MeasurementApplied += () => MainThread.BeginInvokeOnMainThread(() =>
+        {
+            UpdateFrontierSpinner();
+#if WEB || BROWSER
+            UpdateWebWarmup();
+#endif
+        });
 
         // Remote data source: the windowed source pages from here (with latency) — no local _all.
         _service = new MockChatService(TotalItems, RemoteLatencyMs);
@@ -698,6 +676,12 @@ public partial class ChatPage
 
         // No-op unless ChatPage.AutoTestEnabled is flipped on (see ChatPage.AutoTest.cs).
         MaybeStartAutoTest();
+
+#if WEB || BROWSER
+        // Show the warmup spinner from first paint; UpdateWebWarmup (fired per measured batch via
+        // MeasurementApplied) clears it when the frontier reaches the end.
+        OnWindowLoadingChanged();
+#endif
     }
 
     // Implemented in ChatPage.AutoTest.cs; does nothing while AutoTestEnabled is false.
@@ -707,6 +691,29 @@ public partial class ChatPage
     // (not an API load — OnWindowLoadingChanged covers those). Cleared as soon as the frontier catches
     // up or the user scrolls away from the edge.
     private bool _frontierSpinner;
+
+#if WEB || BROWSER
+    // Web/WASM only: the resident window is measured cooperatively AFTER first paint (single-thread,
+    // paced background pass), so scrolling into not-yet-measured cells is laggy until it finishes.
+    // Drives ONE centered spinner for that startup window. Starts true (shown from first paint),
+    // cleared once the measurement frontier reaches the end (see UpdateWebWarmup).
+    private bool _webWarmup = true;
+
+    // Clears the warmup spinner when the measurement frontier reaches the end of the resident window.
+    // Latching (only ever goes true->false), so a later LoadMore that grows the window never re-shows it.
+    private void UpdateWebWarmup()
+    {
+        if (!_webWarmup)
+            return;
+
+        var count = ChatStack?.ItemsSource?.Count ?? 0;
+        if (count > 0 && ChatStack.LastMeasuredIndex >= count - 1)
+        {
+            _webWarmup = false;
+            OnWindowLoadingChanged();
+        }
+    }
+#endif
 
     private void UpdateFrontierSpinner()
     {
@@ -726,11 +733,27 @@ public partial class ChatPage
     // long jump (window-replace) = center. Raised on the UI thread by WindowedSource.
     private void OnWindowLoadingChanged()
     {
+
         if (Spinner == null)
             return;
 
         bool on = _limitedSource.IsLoadingOlder || _limitedSource.IsLoadingNewer || _limitedSource.IsLoadingJump
                   || _frontierSpinner;
+
+#if WEB || BROWSER
+        // On web the per-operation load spinners (LoadOlder/Newer/Jump/frontier) don't apply — the ONLY
+        // spinner is the initial measurement warmup. Centered while warming, cleared when the frontier
+        // reaches the end of the resident window.
+        if (_webWarmup)
+        {
+            Spinner.VerticalOptions = LayoutOptions.Center;
+            Spinner.Margin = new Thickness(0);
+            Spinner.IsVisible = true;
+            SpinnerLoader?.Start();
+            return;
+        }
+#endif
+
         if (on)
         {
             if (_limitedSource.IsLoadingJump)

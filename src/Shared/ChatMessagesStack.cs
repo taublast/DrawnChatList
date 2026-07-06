@@ -1,16 +1,18 @@
-using DrawnUi.Draw;
+
 using System.Collections.Specialized;
 using System.Diagnostics;
+using DrawnUi.Draw;
 
 namespace DrawnChatList;
 
-/// <summary>
-/// Chat cells stack — the band-plane machinery (record gates, coverage clamp, re-anchor, off-thread
-/// compositor) now lives in the lib control <see cref="SkiaCachedStack"/>; this subclass keeps only the
-/// chat-specific motion-trace logging and tap diagnostics.
-/// </summary>
-public class CellsStackCached : SkiaCachedStack
+public class ChatMessagesStack : SkiaCachedStack
 {
+    public ChatMessagesStack()
+    {
+        //cells will still be reused for newly arriving data inside limited window
+        RecyclingTemplate = RecyclingTemplate.Disabled;
+    }
+
     protected override void OnItemsSourceCollectionChanged(object sender, NotifyCollectionChangedEventArgs args)
     {
         if (ChatPage.MotionTraceEnabled)

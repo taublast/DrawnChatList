@@ -4,8 +4,8 @@ namespace DrawnChatList;
 
 public class LimitedSource : WindowedSource<ChatMessage>
 {
-    public LimitedSource(int batch, int maxInMemory, bool limitMemory) : base(batch, maxInMemory,
-        limitMemory)
+    public LimitedSource(int batch, int maxInMemory) : base(batch, maxInMemory,
+        true)
     {
     }
 

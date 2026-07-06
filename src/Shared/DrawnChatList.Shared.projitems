@@ -9,11 +9,10 @@
     <Import_RootNamespace>DrawnChatList.Shared</Import_RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="$(MSBuildThisFileDirectory)AppMessagesStack.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)ChatMessagesStack.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)AppPicker.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ChatCell.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ChatMessage.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)CellsStackCached.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)CellsStack.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ChatPage.Svg.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ChatPage.Shared.cs" />
