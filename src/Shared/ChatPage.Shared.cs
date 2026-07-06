@@ -23,7 +23,7 @@ public partial class ChatPage
     /// messages, max 300) when one screen fits more than ~14 messages (desktop/Blazor windows),
     /// so LoadMore commits stay rare per scrolled distance.
     /// </summary>
-    private const int LoadBatch = 50;
+    private const int LoadBatch = 20;
 
     /// <summary>
     /// Master switch for the memory window. True = keep only a bounded slice of the history
@@ -41,11 +41,9 @@ public partial class ChatPage
     /// batch on larger viewports (this constant then acts as the floor). 3x measured bad on
     /// phone: ~300 live cell views without recycling = lag.
     /// </summary>
-    private const int MaxItemsInMemory = 150;
+    private const int MaxItemsInMemory = 200;
 
-    // Recycling measured WORSE on-device with prepared views (rebind+remeasure+rebake per appearing
-    // cell: Release real-swipe worst 225ms vs 49ms Disabled; Debug unusable) — Disabled keeps each
-    // context's cell bound+measured+baked, revisits are free.
+    // Cells will be created for every message withing the limited window
     private const bool RecyclingTemplates = false;
 
     /// <summary>
@@ -63,7 +61,11 @@ public partial class ChatPage
     private readonly LimitedSource _limitedSource = new(LoadBatch, MaxItemsInMemory, LimitMemoryWindow);
 
     // Simulated remote API (the message history lives here, not in memory locally).
-    private const int RemoteLatencyMs = 50;
+    // Normally in a chat app we would load data decoupled from UI, store in local DB and
+    // serve to UI from there with close to zero latency, we don't do this here..
+    private const int RemoteLatencyMs = 20;
+
+
     private MockChatService _service;
 
     // Thin passthroughs so the existing read-sites (and the platform debug probes) keep compiling.
@@ -220,52 +222,35 @@ public partial class ChatPage
                             Children =
                             {
                                 // MESSAGES
-                                new SkiaScroll
+                                new ChatScroll
                                 {
-                                    Orientation = ScrollOrientation.Vertical,
-                                    ResetScrollPositionOnContentSizeChanged = false,
-
-                                    // Inverted chat (original app trick): content rotated 180 so the
-                                    // list start (= newest message) sits at the visual bottom; cells
-                                    // rotate themselves back upright (ChatCell.Rotation = 180).
-                                    Rotation = 180,
-                                    ReverseGestures = true,
-                                    TrackIndexPosition = RelativePositionType.Start,
-
                                     // bottom trigger = visually scrolling UP = load history
                                     LoadMoreCommand = new Command(_limitedSource.LoadOlder),
-                                    LoadMoreOffset = 800,
 
                                     // top trigger = visually scrolling DOWN = reload trimmed newer part
                                     LoadMoreTopCommand = new Command(_limitedSource.LoadNewer),
-                                    LoadMoreTopOffset = 800,
-
-                                    HorizontalOptions = LayoutOptions.Fill,
-                                    VerticalOptions = LayoutOptions.Fill,
 
                                     Content = new AppMessagesStack
                                     {
                                         BackgroundMeasurementBatchSize = LoadBatch,
+                                        
                                         //ReserveTemplates = MaxItemsInMemory + LoadBatch,
-                                        ItemTemplatePoolSize = RecyclingTemplates ? PoolCells : MaxItemsInMemory + LoadBatch, //prefill
+                                        ItemTemplatePoolSize = RecyclingTemplates ? PoolCells : MaxItemsInMemory + LoadBatch + 5, //prefill
+                                        
                                         ItemTemplateType = typeof(ChatCell),
                                         ItemsSource = _limitedSource.Items,
                                         RecyclingTemplate = RecyclingTemplates ? RecyclingTemplate.Enabled : RecyclingTemplate.Disabled,
                                         MeasureItemsStrategy = MeasuringStrategy.MeasureVisible,
+                                        
                                         // Prepared-views pipeline: cells are bound+measured off-thread ahead of
                                         // scrolling; the render thread NEVER measures a cell (kills fling spikes),
                                         // unprepared cells show their skeleton for a frame or two instead.
                                         UsePreparedViews = true,
+
                                         Spacing = 4,
                                         Padding = new Thickness(0, 8),
                                     }.Assign(out ChatStack),
                                 }.Assign(out MainScroll),
-                                // NOTE: do NOT wire AdaptToKeyboardFor/AdaptToKeyboardSize here. That helper
-                                // scrolls a NON-inverted scroll to reveal a focused child INSIDE it; our editor
-                                // lives outside in the send bar and the keyboard spacer already raises it. On
-                                // Android the delayed calc could run before the spacer relayout and shove the
-                                // inverted chat by ~keyboard height into history (newest message covered).
-                                // The inverted scroll keeps the newest-side anchor on viewport resize by itself.
 
                                 // ATTACHMENT-REPLY WHILE TYPING: quote panel above the send bar.
                                 // Improvement over the original: tap the panel to JUMP to the quoted
@@ -667,6 +652,12 @@ public partial class ChatPage
         _limitedSource.SetHost(new SkiaScrollWindowHost(MainScroll, ChatStack));
         _limitedSource.OnSliceLoaded = PreloadSlice;
         _limitedSource.LoadingChanged = OnWindowLoadingChanged;
+
+        // The frontier spinner arms from scroll events only — parked at the edge there are no more
+        // scroll events, so it must ALSO re-evaluate when measurement progresses (batch applied to
+        // the structure), or it never clears and the user is never told the limit moved. Raised on
+        // the render thread — marshal.
+        ChatStack.MeasurementApplied += () => MainThread.BeginInvokeOnMainThread(UpdateFrontierSpinner);
 
         // Remote data source: the windowed source pages from here (with latency) — no local _all.
         _service = new MockChatService(TotalItems, RemoteLatencyMs);

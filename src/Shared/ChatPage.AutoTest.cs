@@ -113,7 +113,11 @@ public partial class ChatPage
                 {
                     Log($"[MOTION] SLOWFRAME {frameMs:0}ms delta={delta:0} at offY={off:0} " +
                         $"win=[{_limitedSource.WindowStart}..{_limitedSource.WindowEnd}) " +
-                        $"older={_limitedSource.IsLoadingOlder}");
+                        $"older={_limitedSource.IsLoadingOlder} " +
+                        // which pipeline paid for this slow frame: gap-rescue inline measures (prep worker
+                        // lost the race) vs plain render-thread measures — separates "prep starvation"
+                        // stutters from everything else at a glance in the trace
+                        $"rescue={ChatStack.CountGapRescueMeasures} rtMeasure={ChatStack.CountRenderThreadCellMeasures}");
                 }
 
                 if (!isStill)
