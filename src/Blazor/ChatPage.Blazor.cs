@@ -1,7 +1,8 @@
-using System.Windows.Input;
+using AppoMobi.Gestures;
 using AppoMobi.Specials;
 using DrawnUi.Draw;
 using DrawnUi.Views;
+using System.Windows.Input;
 
 
 namespace DrawnChatList;
@@ -55,7 +56,9 @@ public sealed partial class ChatPage : BindableObject, IChatCellActions
     {
         // Data source + async seed happen in InitializeList (after the scroll/host are built).
         _api.ReplyReceived += (s, text) => ReceiveMessage(text);
-        _api.Typing += (s, typing) => SetBotTyping(typing);  
+        _api.Typing += (s, typing) => SetBotTyping(typing);
+
+        TouchEffect.LongPressTimeMsDefault = 1000;
     }
      
 
