@@ -7,3 +7,5 @@ A chat list drawn on SkiaSharp canvas etude.
 * Uneven cell heights
 * Single cell for all message types
 
+Web: [simple demo](https://chatproto.appomobi.com/)
+
