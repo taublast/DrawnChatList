@@ -6,7 +6,9 @@ using AppoMobi.Gestures;
 using DrawnUi;
 using DrawnUi.Controls;
 using DrawnUi.Draw;
+using DrawnUi.Extensions;
 using DrawnUi.Views;
+using SkiaSharp;
 
 namespace DrawnChatList;
 
@@ -89,6 +91,18 @@ public class ChatCell : SkiaDynamicDrawnCell
                 Debug.WriteLine($"Tapped CELL index {ContextIndex}");
             }
         }
+        else
+        if (args.Type == TouchActionResult.LongPressing)
+        {
+            if (BindingContext is ChatMessage msg)
+            {
+                Debug.WriteLine($"LongPressing CELL data {msg.Index} index {ContextIndex}");
+            }
+            else
+            {
+                Debug.WriteLine($"LongPressing CELL index {ContextIndex}");
+            }
+        }
 
         return base.ProcessGestures(args, apply);
     }
@@ -107,7 +121,7 @@ public class ChatCell : SkiaDynamicDrawnCell
 
         Children = new List<SkiaControl>
         {
-            new DiagStack
+            new SkiaStack
             {
                 Spacing = 0,
                 Children =
@@ -154,17 +168,17 @@ public class ChatCell : SkiaDynamicDrawnCell
                             }.Assign(out _highlight),
 
                     //container to glue the bubble with its tail
-                    new SkiaLayout
+                    new CellContainer
                         {
-                            Type = LayoutType.Row,
-                            Spacing = 0,
                             Margin = new Thickness(8, 0),
                             Children =
                             {
                                 new IncomingBubbleSign().Assign(out _tailIn),
+                                new OutcomingBubbleSign().Assign(out _tailOut),
 
                                 new SkiaShape
                                 {
+                                    Margin=new(8,0),
                                     Type = ShapeType.Rectangle,
                                     CornerRadius = 14,
                                     Padding = 0,
@@ -327,7 +341,6 @@ public class ChatCell : SkiaDynamicDrawnCell
                                     }
                                 }.Assign(out _bubble),
 
-                                new OutcomingBubbleSign().Assign(out _tailOut),
                             }
                         }.Assign(out _row)
                         .OnLongPressing(me =>
@@ -662,8 +675,10 @@ public class ChatCell : SkiaDynamicDrawnCell
 
 }
 
-
-
+public class CellContainer : SkiaLayout
+{
+    
+}
 
 
 #if DEBUG

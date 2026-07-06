@@ -25,7 +25,7 @@ public partial class ChatPage
     /// scroll motion abruptly HOLDS (offset stops mid-fling) or JUMPS, with window/loading state.
     /// Near-zero overhead per frame; find lines via logcat tag DOTNET, marker [MOTION].
     /// </summary>
-    public static bool MotionTraceEnabled = true;
+    public static bool MotionTraceEnabled = false;
 
     private bool _autoTestStarted;
 

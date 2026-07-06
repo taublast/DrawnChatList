@@ -1,4 +1,5 @@
 using DrawnUi.Draw;
+using DrawnUi.Views;
 
 namespace DrawnChatList;
 
@@ -12,6 +13,7 @@ public class OutcomingBubbleSign : SkiaShape
     public OutcomingBubbleSign()
     {
         InputTransparent = true;
+        HorizontalOptions = LayoutOptions.End;
         UseCache = SkiaCacheType.Operations;
         CacheSharing = CacheSharingType.Shared; //same cache used fo ALL instances!
         Type = ShapeType.Polygon;
