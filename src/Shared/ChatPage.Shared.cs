@@ -1433,7 +1433,7 @@ public partial class ChatPage
         if (StatusLabel == null)
             return;
 
-        StatusLabel.Text = typing ? "Banana is typing…" : "online";
+        StatusLabel.Text = typing ? "John is typing…" : "online";
         StatusLabel.TextColor = typing ? ChatTheme.AccentBright : ChatTheme.IconMuted;
     }
 }
