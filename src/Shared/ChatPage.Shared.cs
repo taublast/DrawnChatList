@@ -137,9 +137,12 @@ public partial class ChatPage
                     Children =
                     {
                         // NAVBAR: drawn replacement for the MAUI Shell bar (hidden in ctor) —
-                        // animated gif avatar + bot name + live "typing…" status
+                        // animated gif avatar + bot name + live "typing…" status. CanBeFocused=true
+                        // makes it accept framework focus on tap (see SkiaControl.CanBeFocused) so
+                        // tapping it dismisses the keyboard like tapping a message does.
                         new SkiaLayout
                         {
+                            CanBeFocused = true,
                             ZIndex = 10,
                             UseCache = SkiaCacheType.GPU,
                             Type = LayoutType.Grid,
@@ -150,7 +153,7 @@ public partial class ChatPage
                             HorizontalOptions = LayoutOptions.Fill,
                             Children =
                             {
-                                //avatar: gif clipped by a circle
+                                //avatar: static image clipped by a circle
                                 new SkiaShape
                                 {
                                     Type = ShapeType.Circle,
@@ -160,10 +163,19 @@ public partial class ChatPage
                                     VerticalOptions = LayoutOptions.Center,
                                     Children =
                                     {
-                                        new SkiaGif
+                                        // banana gif, switch back anytime:
+                                        //new SkiaGif
+                                        //{
+                                        //    Source = "Images/banana.gif",
+                                        //    Repeat = -1,
+                                        //    HorizontalOptions = LayoutOptions.Fill,
+                                        //    VerticalOptions = LayoutOptions.Fill,
+                                        //},
+
+                                        new SkiaImage
                                         {
-                                            Source = "Images/banana.gif",
-                                            Repeat = -1,
+                                            Source = "https://i.pravatar.cc/150?img=12",
+                                            Aspect = TransformAspect.AspectCover,
                                             HorizontalOptions = LayoutOptions.Fill,
                                             VerticalOptions = LayoutOptions.Fill,
                                         },
@@ -179,7 +191,7 @@ public partial class ChatPage
                                         new SkiaLabel
                                         {
                                             UseCache = SkiaCacheType.Operations,
-                                            Text = "Banana Bot",
+                                            Text = "John Doe",
                                             FontSize = 15,
                                             TextColor = Colors.White,
                                         },
