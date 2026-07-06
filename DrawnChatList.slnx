@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/Chat/">
+    <Project Path="src/Blazor/DrawnChatList.Blazor.csproj" />
+    <Project Path="src/Maui/DrawnChatList.Maui.csproj">
+      <Deploy Solution="Debug|*" />
+    </Project>
+    <Project Path="src/OpenTk/DrawnChatList.OpenTk.csproj" />
+    <Project Path="src/Shared/DrawnChatList.Shared.shproj" />
+  </Folder>
+  <Folder Name="/Solution Items/">
+    <File Path="README.md" />
+  </Folder>
+</Solution>

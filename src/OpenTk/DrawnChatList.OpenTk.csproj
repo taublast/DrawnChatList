@@ -29,14 +29,11 @@
   <ItemGroup>
     <!-- Required for Linux publish to include native Skia runtime -->
     <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="4.148.0" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\..\..\DrawnUi\src\OpenTk\DrawnUi\DrawnUi.OpenTk.csproj" />
+    <PackageReference Include="DrawnUi.OpenTk" Version="1.10.4.1" />
   </ItemGroup>
 
   <Import Project="..\Shared\DrawnChatList.Shared.projitems" Label="Shared" />
 
- 
+
 
 </Project>
