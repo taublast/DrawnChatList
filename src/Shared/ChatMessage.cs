@@ -92,7 +92,7 @@ public sealed class ChatMessage : BindableObject, IHasGuidId
     /// <summary>
     /// Incoming message that arrived while the user was scrolled away from the newest end
     /// (Telegram-style "unread"): the bound cell shows a steady highlight, the scroll-to-newest
-    /// FAB shows the count. Cleared when the user jumps to it or scrolls back to the newest end.
+    /// FAB shows the count. Cleared only when the user scrolls back to true offset 0.
     /// </summary>
     public bool IsUnread
     {

@@ -32,11 +32,6 @@ public partial class ChatPage
     /// </summary>
     private const bool LimitMemoryWindow = true;
 
-    // Recycling measured WORSE on-device with prepared views (rebind+remeasure+rebake per appearing
-    // cell: Release real-swipe worst 225ms vs 49ms Disabled; Debug unusable) — Disabled keeps each
-    // context's cell bound+measured+baked, revisits are free.
-    private const bool RecyclingTemplates = false;
-
     /// <summary>
     /// Resident cap: how many messages stay materialized at rest. Tuned for a PHONE viewport.
     /// The count transiently peaks at cap + batch right after a LoadMore, because the
@@ -48,12 +43,27 @@ public partial class ChatPage
     /// </summary>
     private const int MaxItemsInMemory = 150;
 
+    // Recycling measured WORSE on-device with prepared views (rebind+remeasure+rebake per appearing
+    // cell: Release real-swipe worst 225ms vs 49ms Disabled; Debug unusable) — Disabled keeps each
+    // context's cell bound+measured+baked, revisits are free.
+    private const bool RecyclingTemplates = false;
+
+    /// <summary>
+    /// Template pool ceiling used ONLY when RecyclingTemplates=true: a small pool of reused
+    /// cells (~2-3 screens worth) that rebind while scrolling. NOT used in the current
+    /// RecyclingTemplates=false setup — there the pool must hold EVERY resident item plus one
+    /// untrimmed batch, so it is sized MaxItemsInMemory + LoadBatch at startup and re-derived
+    /// as cap + batch by AutoTuneWindow() (an undersized pool makes cell preparation evict
+    /// in-use cells — endless rebind churn, visibly jaggy scroll).
+    /// </summary>
+    private const int PoolCells = 64;
+
     // Windowed source, INVERTED (Items[i] == All[WindowEnd - 1 - i]). All window/paging/jump logic
     // lives in the reusable WindowedSource<T>; the page only owns UI (cells, FABs, highlight, theme).
     private readonly LimitedSource _limitedSource = new(LoadBatch, MaxItemsInMemory, LimitMemoryWindow);
 
     // Simulated remote API (the message history lives here, not in memory locally).
-    private const int RemoteLatencyMs = 20;
+    private const int RemoteLatencyMs = 50;
     private MockChatService _service;
 
     // Thin passthroughs so the existing read-sites (and the platform debug probes) keep compiling.
@@ -210,23 +220,42 @@ public partial class ChatPage
                             Children =
                             {
                                 // MESSAGES
-                                new ChatScroll
+                                new SkiaScroll
                                 {
+                                    Orientation = ScrollOrientation.Vertical,
+                                    ResetScrollPositionOnContentSizeChanged = false,
+
+                                    // Inverted chat (original app trick): content rotated 180 so the
+                                    // list start (= newest message) sits at the visual bottom; cells
+                                    // rotate themselves back upright (ChatCell.Rotation = 180).
+                                    Rotation = 180,
+                                    ReverseGestures = true,
+                                    TrackIndexPosition = RelativePositionType.Start,
+
                                     // bottom trigger = visually scrolling UP = load history
                                     LoadMoreCommand = new Command(_limitedSource.LoadOlder),
+                                    LoadMoreOffset = 800,
 
                                     // top trigger = visually scrolling DOWN = reload trimmed newer part
                                     LoadMoreTopCommand = new Command(_limitedSource.LoadNewer),
+                                    LoadMoreTopOffset = 800,
+
+                                    HorizontalOptions = LayoutOptions.Fill,
+                                    VerticalOptions = LayoutOptions.Fill,
 
                                     Content = new AppMessagesStack
                                     {
                                         BackgroundMeasurementBatchSize = LoadBatch,
-                                        ReserveTemplates = RecyclingTemplates ? LoadBatch : MaxItemsInMemory + LoadBatch, //prefill
-                                        ItemTemplatePoolSize = RecyclingTemplates ? -1 : MaxItemsInMemory + LoadBatch + 5, 
+                                        //ReserveTemplates = MaxItemsInMemory + LoadBatch,
+                                        ItemTemplatePoolSize = RecyclingTemplates ? PoolCells : MaxItemsInMemory + LoadBatch, //prefill
                                         ItemTemplateType = typeof(ChatCell),
                                         ItemsSource = _limitedSource.Items,
                                         RecyclingTemplate = RecyclingTemplates ? RecyclingTemplate.Enabled : RecyclingTemplate.Disabled,
-
+                                        MeasureItemsStrategy = MeasuringStrategy.MeasureVisible,
+                                        // Prepared-views pipeline: cells are bound+measured off-thread ahead of
+                                        // scrolling; the render thread NEVER measures a cell (kills fling spikes),
+                                        // unprepared cells show their skeleton for a frame or two instead.
+                                        UsePreparedViews = true,
                                         Spacing = 4,
                                         Padding = new Thickness(0, 8),
                                     }.Assign(out ChatStack),
@@ -482,7 +511,7 @@ public partial class ChatPage
                     Opacity = 0,
                     WidthRequest = 46,
                     LockRatio = 1,
-                    BackgroundColor = Color.Parse("#F217212B"),
+                    BackgroundColor = Color.Parse("#F2172636"),
                     HorizontalOptions = LayoutOptions.End,
                     VerticalOptions = LayoutOptions.End,
                     Margin = new Thickness(0, 0, 10, 120),
@@ -502,20 +531,19 @@ public partial class ChatPage
                     }
                 }.Assign(out BtnScrollToEnd).OnTapped(me => ScrollToUnreadOrNewest()),
 
-                // UNREAD COUNT BADGE: shown only while unread messages are pending
+                // UNREAD COUNT BADGE: out of button to avoid clipping
                 new SkiaShape
                 {
                     ZIndex = 91,
-                    Margin = new Thickness(0, 0, 6, 154),
-                    InputTransparent = true,
                     Type = ShapeType.Circle,
-                    UseCache = SkiaCacheType.ImageDoubleBuffered,
+                    UseCache = SkiaCacheType.Operations,
                     IsVisible = false,
                     WidthRequest = 20,
                     HeightRequest = 20,
                     BackgroundColor = ChatTheme.Accent,
                     HorizontalOptions = LayoutOptions.End,
                     VerticalOptions = LayoutOptions.End,
+                    Margin = new Thickness(0, 0, 6, 150),
                     Children =
                     {
                         new SkiaLabel
@@ -533,8 +561,6 @@ public partial class ChatPage
                 new SkiaShape
                 {
                     Type = ShapeType.Circle,
-                    UseCache = SkiaCacheType.GPU,
-                    InputTransparent = true,
                     IsVisible = false,
                     WidthRequest = 40,
                     LockRatio = 1,
@@ -547,7 +573,6 @@ public partial class ChatPage
                     {
                         new SkiaLottie
                         {
-                            UseCache = SkiaCacheType.None,
                             AutoPlay = false,
                             Repeat = -1,
                             Source = "Lottie/iosloader.json",
@@ -912,10 +937,12 @@ public partial class ChatPage
         _windowTuned = true;
         _limitedSource.Reconfigure(batch, cap);
 
-        // Pool ceiling: NOT set manually anymore. With ItemTemplatePoolSize unset the lib caps the pool
-        // TOTAL (created = parked + in-use) at the LIVE ItemsSource count + headroom, re-applied on every
-        // window swap — it follows cap+batch at the deferred-trim peak and SHRINKS back after trims.
-        Console.WriteLine($"[ChatPage] window auto-tuned: ~{perScreen}/screen -> batch={batch} cap={cap}");
+        // Pool ceiling must cover PEAK residency = cap + one untrimmed LoadOlder batch (the trim is
+        // deferred until the batch measures), otherwise preparation evicts in-use tagged contexts —
+        // musical-chairs rebind churn. Grown in place via the factory: setting ItemTemplatePoolSize
+        // would re-trigger ApplyItemsSource (full items rebuild mid-scroll).
+        ChatStack.ChildrenFactory.SetPoolMaxSize(cap + batch);
+        Console.WriteLine($"[ChatPage] window auto-tuned: ~{perScreen}/screen -> batch={batch} cap={cap} pool={cap + batch}");
     }
 
     private void OnChatScrolled(object sender, ScaledPoint e)
@@ -997,6 +1024,11 @@ public partial class ChatPage
 
         if (show == _scrollDownShown || BtnScrollToEnd == null)
             return;
+
+        if (_unreadMessages.Count > 0)
+        {
+            show = true; //anyway
+        }
 
         _scrollDownShown = show;
 
@@ -1114,6 +1146,22 @@ public partial class ChatPage
 
         _unreadMessages.Clear();
         UpdateUnreadBadge();
+    }
+
+    /// <summary>
+    /// FAB tap: jump to the OLDEST pending unread (Telegram-style — not to the newest message)
+    /// and leave it highlighted/counted; unread only clears once the user actually reaches offset
+    /// 0 (see OnChatScrolled). Falls back to plain scroll-to-newest when nothing is unread.
+    /// </summary>
+    private void ScrollToUnreadOrNewest()
+    {
+        if (_unreadMessages.Count > 0)
+        {
+            ScrollToIndex(_unreadMessages[0].Index, RelativePositionType.Start, true);
+            return;
+        }
+
+        ScrollToNewest(true);
     }
 
     // MOCK STREAMING AI: one incoming message whose Text grows word-by-word for ~5s, to stress-test
@@ -1314,21 +1362,6 @@ public partial class ChatPage
         }
     }
 
-    /// <summary>
-    /// FAB tap: jump to the OLDEST pending unread (Telegram-style — not to the newest message)
-    /// and leave it highlighted/counted; unread only clears once the user actually reaches offset
-    /// 0 (see OnChatScrolled). Falls back to plain scroll-to-newest when nothing is unread.
-    /// </summary>
-    private void ScrollToUnreadOrNewest()
-    {
-        if (_unreadMessages.Count > 0)
-        {
-            ScrollToIndex(_unreadMessages[0].Index, RelativePositionType.End, true);
-            return;
-        }
-
-        ScrollToNewest(true);
-    }
 
     /// <summary>
     /// Dev helper: jump to the very first (oldest) message. Rebases the window to the start of

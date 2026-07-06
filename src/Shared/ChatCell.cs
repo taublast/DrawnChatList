@@ -107,18 +107,6 @@ public class ChatCell : SkiaDynamicDrawnCell
 
         Children = new List<SkiaControl>
         {
-            //jump-highlight band: covers the whole cell behind the content, hidden when idle
-            new SkiaShape
-            {
-                ZIndex = -1,
-                IsVisible = false,
-                InputTransparent = true,
-                Type = ShapeType.Rectangle,
-                BackgroundColor = ChatTheme.AccentBright,
-                HorizontalOptions = LayoutOptions.Fill,
-                VerticalOptions = LayoutOptions.Fill,
-            }.Assign(out _highlight),
-
             new DiagStack
             {
                 Spacing = 0,
@@ -145,6 +133,25 @@ public class ChatCell : SkiaDynamicDrawnCell
                             }.Assign(out _day),
                         }
                     }.Assign(out _dayChip),
+
+                    // ROW BAND: highlight scoped to just this message row (auto-height = row
+                    // height), never the date-chip sibling above it.
+                    new SkiaLayer
+                    {
+                        HorizontalOptions = LayoutOptions.Fill,
+                        Children =
+                        {
+                            //jump-highlight band: covers this row behind the content, hidden when idle
+                            new SkiaShape
+                            {
+                                ZIndex = -1,
+                                IsVisible = false,
+                                InputTransparent = true,
+                                Type = ShapeType.Rectangle,
+                                BackgroundColor = ChatTheme.AccentBright,
+                                HorizontalOptions = LayoutOptions.Fill,
+                                VerticalOptions = LayoutOptions.Fill,
+                            }.Assign(out _highlight),
 
                     //container to glue the bubble with its tail
                     new SkiaLayout
@@ -339,12 +346,6 @@ public class ChatCell : SkiaDynamicDrawnCell
                             {
                                 Debug.WriteLine($"[CHAT] tapped message {msg.Index} ({msg.Type})");
 
-                                if (msg.IsFirstDay)
-                                {
-                                    msg.IsFirstDay = false;
-                                    return;
-                                }
-
                                 //open tapped image fullscreen, page reached like in the
                                 //original app: cell -> Parent (items stack) -> BindingContext
                                 if (msg.Type == ChatMessageType.Image
@@ -354,6 +355,8 @@ public class ChatCell : SkiaDynamicDrawnCell
                                 }
                             }
                         }),
+                        }
+                    },
                 }
             }
         };
