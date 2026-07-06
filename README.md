@@ -7,5 +7,9 @@ A chat list drawn on SkiaSharp canvas etude.
 * Uneven cell heights
 * Single cell for all message types
 
-Web: [simple demo](https://chatproto.appomobi.com/)
+Web: [Article with demo](https://taublast.github.io/posts/RecycledCells)
+
+https://github.com/user-attachments/assets/999be53e-bcc8-436b-a83c-bbc517026eee
+
+
 
