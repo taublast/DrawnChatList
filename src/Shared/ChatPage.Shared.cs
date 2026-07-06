@@ -209,6 +209,7 @@ public partial class ChatPage
                                 // DEV TOOLS: opens the dev-options picker (mock pickers / debug actions)
                                 new SkiaLayer
                                 {
+                                    CanBeFocused = true,
                                     UseCache = SkiaCacheType.GPU,
                                     WidthRequest = 40,
                                     HorizontalOptions = LayoutOptions.Fill,
@@ -232,6 +233,7 @@ public partial class ChatPage
 
                         new SkiaLayer()
                         {
+                            CanBeFocused = true,
                             VerticalOptions = LayoutOptions.Fill,
                             Children =
                             {
