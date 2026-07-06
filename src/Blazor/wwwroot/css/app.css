@@ -4,13 +4,17 @@ body {
     padding: 0;
     height: 100vh;
     overflow: hidden;
+    background-color: #0E1621; /* ChatTheme.Bg - no white flash/letterbox in a wide iframe */
 }
 
 #app {
     height: 100vh;
     display: flex;
     flex-direction: column;
+    align-items: center; /* center the phone-width canvas when the iframe is wider */
+    justify-content: center; /* center vertically when the iframe is taller than the 700px cap */
     overflow: hidden;
+    background-color: #0E1621;
 }
 
 .canvas-full-height-wrapper {
@@ -90,7 +94,9 @@ body {
 .loading-progress-text {
     position: absolute;
     text-align: center;
+    font-family: Arial, sans-serif;
     font-weight: bold;
+    color: white;
     inset: calc(20vh + 3.25rem) 0 auto 0.2rem;
 }
 

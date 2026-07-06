@@ -101,6 +101,8 @@ public partial class ChatPage
     AppPicker PickerDev;
     AppPicker PickerMessage;
 
+    SkiaLabel DebugOverlay;
+
     SkiaShape BtnScrollToEnd;
     SkiaShape BtnScrollToEndBadge;
     SkiaLabel BtnScrollToEndBadgeLabel;
@@ -240,12 +242,11 @@ public partial class ChatPage
                                         ItemTemplateType = typeof(ChatCell),
                                         ItemsSource = _limitedSource.Items,
                                         RecyclingTemplate = RecyclingTemplates ? RecyclingTemplate.Enabled : RecyclingTemplate.Disabled,
+                                        // MeasureVisible activates the prepared-views pipeline: cells are
+                                        // bound+measured off-thread ahead of scrolling; the render thread NEVER
+                                        // measures a cell (kills fling spikes), unprepared cells show their
+                                        // skeleton for a frame or two instead.
                                         MeasureItemsStrategy = MeasuringStrategy.MeasureVisible,
-                                        
-                                        // Prepared-views pipeline: cells are bound+measured off-thread ahead of
-                                        // scrolling; the render thread NEVER measures a cell (kills fling spikes),
-                                        // unprepared cells show their skeleton for a frame or two instead.
-                                        UsePreparedViews = true,
 
                                         Spacing = 4,
                                         Padding = new Thickness(0, 8),
@@ -462,6 +463,7 @@ public partial class ChatPage
                 // DEBUG OVERLAY: shows resident items window for the memory-cap demo
                 new SkiaLabel
                 {
+                    IsVisible = false,
                     Margin = new(16, 0, 16, 100),
                     Padding = 2,
                     BackgroundColor = Color.Parse("#AA000000"),
@@ -471,7 +473,7 @@ public partial class ChatPage
                     VerticalOptions = LayoutOptions.Center,
                     Rotation = -20,
                     ZIndex = 100,
-                }.ObserveProperty(() => ChatStack, nameof(SkiaLayout.DebugString),
+                }.Assign(out DebugOverlay).ObserveProperty(() => ChatStack, nameof(SkiaLayout.DebugString),
                     me => { me.Text = ChatStack.DebugString; }),
 
 #if DEBUG
@@ -849,6 +851,7 @@ public partial class ChatPage
                 new (string, Action)[]
                 {
                     ("Scroll to oldest", ()=>ScrollToOldest(true)),
+                    ("Toggle diagnostics", ()=>DebugOverlay.IsVisible = !DebugOverlay.IsVisible),
                     ("Mock incoming", MockIncoming),
                     ("Mock AI answer", StartMockAiAnswer),
                     //("Stop AI mock", StopMockAiAnswer),

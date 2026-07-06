@@ -107,6 +107,7 @@ Global
 		{F201ACD6-AEE7-ED4D-DBFA-50B781BC9609}.Release|Any CPU.Build.0 = Release|Any CPU
 		{10AF30C4-69B5-5732-1921-7D793F7CBCFA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{10AF30C4-69B5-5732-1921-7D793F7CBCFA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{10AF30C4-69B5-5732-1921-7D793F7CBCFA}.Debug|Any CPU.Deploy.0 = Debug|Any CPU
 		{10AF30C4-69B5-5732-1921-7D793F7CBCFA}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{10AF30C4-69B5-5732-1921-7D793F7CBCFA}.Release|Any CPU.Build.0 = Release|Any CPU
 		{60682D46-4917-F17C-35C7-9202895DF907}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
@@ -150,6 +151,7 @@ Global
 		src\Shared\DrawnChatList.Shared.projitems*{60682d46-4917-f17c-35c7-9202895df907}*SharedItemsImports = 5
 		src\Shared\DrawnChatList.Shared.projitems*{60ef8dbf-e427-472c-9bb6-8d028e4b7900}*SharedItemsImports = 13
 		..\DrawnUi\src\Shared\DrawnUi\Shared.projitems*{93e119b1-4378-87df-2dd2-a818d1e6c2a2}*SharedItemsImports = 5
+		..\DrawnUi\src\Shared\Samples\Pong.Shared\Pong.Shared.projitems*{a13410a7-0354-e08e-7284-f989c5c89609}*SharedItemsImports = 5
 		..\DrawnUi\src\Shared\DrawnUi\Shared.projitems*{a600fd05-5de5-e382-db79-8e53ad2fed7e}*SharedItemsImports = 5
 		src\Shared\DrawnChatList.Shared.projitems*{c43704b9-2464-1240-d799-52ca51a7eb28}*SharedItemsImports = 5
 		..\DrawnUi\src\SharedNet\SharedNet.projitems*{c4d8f2a1-7b3e-4f9c-a8d6-5e1b9f2c8d3a}*SharedItemsImports = 13
